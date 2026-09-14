@@ -1,0 +1,99 @@
+name: Deploy
+
+# Deploys infrastructure and the frontend to one environment. Requires the
+# repository (or environment) secrets/variables listed in docs/deployment.md
+# and docs/ci-cd.md -- this workflow will fail fast and loudly if they are
+# not configured, rather than deploying with unsafe defaults.
+#
+# Trigger manually (workflow_dispatch) to choose an environment explicitly.
+# Wire this to `push: branches: [main]` with environment: prod only once a
+# real AWS account, OIDC role and Entra tenant are provisioned.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, test, prod]
+        default: dev
+
+permissions:
+  id-token: write # required for AWS OIDC federation -- no long-lived AWS keys are used
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  deploy:
+    name: Deploy (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run quality gates
+        run: npm run validate
+        env:
+          ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
+          ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
+          VITE_ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
+          VITE_ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
+          VITE_ENTRA_API_SCOPE: api://${{ vars.ENTRA_CLIENT_ID }}/access_as_user
+          VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
+
+      # Federated, short-lived credentials -- see docs/deployment.md for how
+      # to create this role (trust policy scoped to this repo and environment).
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Deploy infrastructure (CDK)
+        run: npx cdk deploy --all --require-approval never --context environment=${{ inputs.environment }}
+        working-directory: infra
+        env:
+          ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
+          ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
+          ENVIRONMENT_NAME: ${{ inputs.environment }}
+
+      - name: Build frontend
+        run: npm run build --workspace apps/web
+        env:
+          VITE_ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
+          VITE_ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
+          VITE_ENTRA_API_SCOPE: api://${{ vars.ENTRA_CLIENT_ID }}/access_as_user
+          VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
+
+      - name: Sync frontend to S3
+        run: |
+          aws s3 sync apps/web/dist "s3://${{ vars.SITE_BUCKET_NAME }}" --delete
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*"
+
+      - name: Smoke test the deployed API
+        run: |
+          curl --fail --silent --show-error "${{ vars.API_BASE_URL }}/health"
+
+      - name: Smoke test the deployed frontend
+        run: |
+          curl --fail --silent --show-error "${{ vars.SITE_URL }}" > /dev/null

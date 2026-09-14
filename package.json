@@ -1,0 +1,63 @@
+{
+  "name": "entra-react-aws-lambda",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Secure SPA: Microsoft Entra ID + React/Vite + API Gateway JWT authorizer + AWS Lambda, provisioned with CDK",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/shared",
+    "apps/web",
+    "infra"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace apps/web",
+    "build": "npm run build --workspaces --if-present && npm run build:api",
+    "build:api": "dotnet build apps/api/App.Api.sln -c Release",
+    "test": "vitest run && npm run test:api",
+    "test:api": "dotnet test apps/api/App.Api.sln",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "e2e": "npm run e2e --workspace apps/web",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write . && npm run format:api",
+    "format:api": "dotnet format apps/api/App.Api.sln",
+    "format:check": "prettier --check . && npm run format:check:api",
+    "format:check:api": "dotnet format apps/api/App.Api.sln --verify-no-changes",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "synth": "npm run synth --workspace infra",
+    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css,html}": [
+      "prettier --write"
+    ],
+    "apps/api/**/*.cs": [
+      "dotnet format apps/api/App.Api.sln --include"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.19.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
+    "prettier": "^3.9.6",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^4.1.11"
+  }
+}

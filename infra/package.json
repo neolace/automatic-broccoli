@@ -1,0 +1,22 @@
+{
+  "name": "infra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "synth": "cdk synth --app \"npx tsx bin/app.ts\"",
+    "deploy": "cdk deploy --app \"npx tsx bin/app.ts\"",
+    "diff": "cdk diff --app \"npx tsx bin/app.ts\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@app/shared": "*",
+    "aws-cdk-lib": "^2.269.0",
+    "constructs": "^10.8.1"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.1141.0",
+    "tsx": "^4.23.13"
+  }
+}

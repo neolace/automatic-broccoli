@@ -1,0 +1,96 @@
+/**
+ * Environment-specific configuration.
+ *
+ * Only values that truly vary by environment live here: account, region,
+ * domain names, log retention, CORS origins and deployment safeguards. The
+ * single Entra tenant/app registration identifiers are non-secret and are
+ * supplied at synth/deploy time via environment variables so the same code
+ * can target dev, test and prod without maintaining near-duplicate stacks.
+ */
+import { RetentionDays } from 'aws-cdk-lib/aws-logs';
+
+export type EnvironmentName = 'dev' | 'test' | 'prod';
+
+export interface DomainConfig {
+  /** Route 53 public hosted zone name, e.g. "example.com". */
+  readonly hostedZoneName: string;
+  /** Fully qualified domain the SPA is served from, e.g. "app.example.com". */
+  readonly siteDomainName: string;
+  /** Fully qualified domain the API is served from, e.g. "api.example.com". */
+  readonly apiDomainName: string;
+}
+
+export interface EnvironmentConfig {
+  readonly name: EnvironmentName;
+  readonly account?: string;
+  readonly region: string;
+  /** Origins the API's CORS policy allows for this environment. */
+  readonly corsOrigins: string[];
+  readonly logRetention: RetentionDays;
+  /**
+   * Custom domain, ACM certificate and Route 53 wiring. Omitted for local/dev
+   * environments that use the generated CloudFront and API Gateway domains.
+   */
+  readonly domain?: DomainConfig;
+  /** Removal policy safeguard: production resources are retained on stack deletion. */
+  readonly isProduction: boolean;
+}
+
+const ENVIRONMENTS: Record<EnvironmentName, EnvironmentConfig> = {
+  dev: {
+    name: 'dev',
+    region: process.env.AWS_REGION ?? 'us-east-1',
+    corsOrigins: ['http://localhost:5173'],
+    logRetention: RetentionDays.TWO_WEEKS,
+    isProduction: false,
+  },
+  test: {
+    name: 'test',
+    region: process.env.AWS_REGION ?? 'us-east-1',
+    corsOrigins: ['https://test.app.example.com'],
+    logRetention: RetentionDays.ONE_MONTH,
+    isProduction: false,
+  },
+  prod: {
+    name: 'prod',
+    region: process.env.AWS_REGION ?? 'us-east-1',
+    corsOrigins: ['https://app.example.com'],
+    logRetention: RetentionDays.SIX_MONTHS,
+    isProduction: true,
+    // Populate to provision a custom domain, ACM certificate and Route 53
+    // records for production. Left undefined until a real domain is owned.
+    // domain: {
+    //   hostedZoneName: 'example.com',
+    //   siteDomainName: 'app.example.com',
+    //   apiDomainName: 'api.example.com',
+    // },
+  },
+};
+
+export function loadEnvironmentConfig(name: EnvironmentName): EnvironmentConfig {
+  const config = ENVIRONMENTS[name];
+  return { ...config, account: process.env.CDK_DEFAULT_ACCOUNT };
+}
+
+/**
+ * Non-secret Entra identifiers required to configure the JWT authorizer and
+ * embed the frontend's runtime configuration at deploy time.
+ */
+export interface EntraConfig {
+  readonly tenantId: string;
+  readonly clientId: string;
+}
+
+export function loadEntraConfig(): EntraConfig {
+  const tenantId = process.env.ENTRA_TENANT_ID;
+  const clientId = process.env.ENTRA_CLIENT_ID;
+
+  if (!tenantId || !clientId) {
+    throw new Error(
+      'ENTRA_TENANT_ID and ENTRA_CLIENT_ID must be set to synthesize the API stack. ' +
+        'See docs/entra-configuration.md.',
+    );
+  }
+
+  return { tenantId, clientId };
+}

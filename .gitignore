@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+cdk.out/
+*.tsbuildinfo
+
+# .NET build output (apps/api)
+bin/
+obj/
+*.user
+
+# Test output
+coverage/
+playwright-report/
+test-results/
+apps/web/e2e/.auth/
+apps/api/**/TestResults/
+
+# Environment files (identifiers only, but keep per-developer values out of git)
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

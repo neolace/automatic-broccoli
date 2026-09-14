@@ -1,0 +1,122 @@
+# Deployment
+
+## Prerequisites
+
+```text
+Node.js >= 22
+.NET SDK 10.0.x           (dotnet --version)
+AWS account + credentials with rights to create the resources below
+An Entra app registration -- see entra-configuration.md
+```
+
+Docker is **not** required on a machine with the .NET 10 SDK installed:
+[`infra/lib/api-lambda-bundling.ts`](../infra/lib/api-lambda-bundling.ts)
+builds the Lambda locally with `dotnet publish` when the SDK is on `PATH`,
+and only falls back to the `public.ecr.aws/sam/build-dotnet10` Docker image
+otherwise (e.g. a CI runner without the SDK preinstalled).
+
+```bash
+npm install
+```
+
+## Local development
+
+```bash
+cp apps/web/.env.example apps/web/.env
+# fill in VITE_ENTRA_TENANT_ID, VITE_ENTRA_CLIENT_ID, VITE_ENTRA_API_SCOPE,
+# VITE_API_BASE_URL -- see entra-configuration.md
+
+npm run dev --workspace apps/web       # http://localhost:5173
+dotnet test apps/api/App.Api.sln       # or: npm run test:api
+```
+
+`http://localhost:5173` must already be registered as a redirect URI on the
+Entra app registration (it is, in the example configuration — see
+[entra-configuration.md](entra-configuration.md#redirect-uris)).
+
+## Deploying infrastructure
+
+Every `synth`/`deploy` requires the two non-secret Entra identifiers as
+environment variables:
+
+```bash
+export ENTRA_TENANT_ID=<tenant id>
+export ENTRA_CLIENT_ID=<client id>
+
+npm run synth --workspace infra                              # dev, by default
+npx cdk deploy --all --context environment=prod              # from infra/, or:
+npm run deploy --workspace infra -- --all --context environment=prod
+```
+
+`infra/lib/config/environments.ts` throws a clear, actionable error rather
+than silently deploying with a placeholder tenant/client id if either
+variable is missing.
+
+### First deploy in an AWS account
+
+`cdk bootstrap` must have been run once per account/region
+(`npx cdk bootstrap aws://<ACCOUNT_ID>/<REGION>`, from `infra/`) before the
+first `cdk deploy`.
+
+### Adding a custom domain
+
+By default every environment serves the frontend from the generated
+`*.cloudfront.net` domain and the API from the generated
+`*.execute-api.*.amazonaws.com` domain — no domain or ACM certificate is
+required to deploy. To add a real domain for an environment, uncomment and
+fill in the `domain` block for that environment in
+[`infra/lib/config/environments.ts`](../infra/lib/config/environments.ts).
+Note the constraint documented in `frontend-stack.ts`: CloudFront requires
+its certificate to exist in `us-east-1`, so that environment's `region` must
+be `us-east-1` whenever a custom domain is configured.
+
+## Deploying the frontend
+
+`cdk deploy` provisions the bucket and distribution but does not itself
+publish the compiled frontend. After a successful `cdk deploy`:
+
+```bash
+npm run build --workspace apps/web
+aws s3 sync apps/web/dist s3://<SiteBucketName output> --delete
+aws cloudfront create-invalidation --distribution-id <DistributionId output> --paths "/*"
+```
+
+`SiteBucketName` and `DistributionId` are printed as CloudFormation outputs
+of the `<env>-app-frontend` stack. `.github/workflows/deploy.yml` automates
+exactly these two steps for CI-driven deploys — see
+[ci-cd.md](ci-cd.md#deployyml--deployment).
+
+## Configuring CI/CD deployment
+
+`deploy.yml` expects these to be set on the target GitHub Environment
+(`dev`/`test`/`prod`), as repository or environment **variables** (all
+non-secret) unless noted:
+
+```text
+AWS_DEPLOY_ROLE_ARN        IAM role ARN with an OIDC trust policy scoped to
+                           this repo + environment (see below)
+AWS_REGION
+ENTRA_TENANT_ID
+ENTRA_CLIENT_ID
+API_BASE_URL               the API stack's ApiUrl output, once known
+SITE_BUCKET_NAME           the frontend stack's SiteBucketName output
+CLOUDFRONT_DISTRIBUTION_ID the frontend stack's DistributionId output
+SITE_URL                   the frontend stack's SiteUrl output
+```
+
+### Creating the OIDC deploy role
+
+Use workload identity federation (GitHub's OIDC provider), not a long-lived
+AWS access key — see [security.md](security.md). Outline:
+
+1. Add GitHub's OIDC provider to the AWS account (`token.actions.githubusercontent.com`), once per account.
+2. Create an IAM role whose trust policy's `sub` condition is scoped to this repository and, ideally, the specific GitHub Environment (`repo:<org>/<repo>:environment:<env>`).
+3. Attach only the permissions this pipeline needs: `cloudformation:*` on the three stacks, `s3:*` on the site bucket, `cloudfront:CreateInvalidation`, plus whatever the CDK bootstrap role model requires for asset publishing in this account.
+4. Record the role ARN as `AWS_DEPLOY_ROLE_ARN`.
+
+## Rollback
+
+Prefer redeploying a previous known-good commit
+(`npx cdk deploy --all --context environment=<env>` from that commit) over a
+manual console change, so infrastructure state and version control never
+diverge — see [troubleshooting.md](troubleshooting.md).

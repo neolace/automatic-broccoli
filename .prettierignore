@@ -1,0 +1,11 @@
+node_modules
+dist
+cdk.out
+coverage
+playwright-report
+test-results
+package-lock.json
+*.tsbuildinfo
+apps/api/**/bin
+apps/api/**/obj
+apps/api/**/TestResults

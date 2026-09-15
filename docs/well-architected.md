@@ -16,14 +16,14 @@ owners and target dates, not as a report nobody acts on.
 
 ## Pillar implementation
 
-| Pillar                     | Implementation in this repository                                                                                                                                                                                                                                                                                                                            |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Operational Excellence** | CDK IaC ([infrastructure.md](infrastructure.md)); CI runs the same checks as local `npm run validate` ([ci-cd.md](ci-cd.md)); structured JSON logs with a correlation id ([observability.md](observability.md)); this documentation set, versioned with the code.                                                                                            |
-| **Security**               | Entra MFA/Conditional Access owned by Entra, not reimplemented ([security.md](security.md)); PKCE, no SPA client secret; API Gateway JWT validation before compute; scoped, claims-based Lambda authorization ([authorization.md](authorization.md)); least-privilege IAM (one managed policy per function, nothing else); private S3 behind CloudFront OAC. |
-| **Reliability**            | Every compute and delivery component is an AWS managed service (Lambda, API Gateway, CloudFront, S3); CloudWatch alarms on Lambda errors/throttles/duration and API 5xx/latency ([observability.md](observability.md)); infrastructure is reproducible from source, not hand-configured.                                                                     |
-| **Performance Efficiency** | CloudFront caching for static assets; HTTP API (lower latency/cost than REST API) with a native JWT authorizer instead of a Lambda authorizer; Lambda execution-environment reuse for the repository/service singletons in `ApplicationFunction` ([lambda.md](lambda.md)).                                                                                   |
-| **Cost Optimization**      | Fully serverless, pay-per-use compute and API layer; S3 + CloudFront static hosting instead of always-on compute for the frontend; environment-scaled log retention (2 weeks dev, 1 month test, 6 months prod) instead of indefinite retention everywhere.                                                                                                   |
-| **Sustainability**         | Managed/serverless services scale to zero when idle; no VPC, NAT gateway, or other always-on networking component exists because nothing in this workload requires one yet ([infrastructure.md](infrastructure.md#networking)).                                                                                                                              |
+| Pillar                     | Implementation in this repository                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Operational Excellence** | CDK IaC ([infrastructure.md](infrastructure.md)); CI runs the same checks as local `npm run validate` ([ci-cd.md](ci-cd.md)); structured JSON logs with a correlation id ([observability.md](observability.md)); this documentation set, versioned with the code.                                                                                                                                                                                                 |
+| **Security**               | Entra MFA/Conditional Access owned by Entra, not reimplemented ([security.md](security.md)); PKCE, no SPA client secret; API Gateway JWT validation before compute; scoped, claims-based Lambda authorization ([authorization.md](authorization.md)); least-privilege IAM (one managed policy per function, plus read-only S3 access scoped to the site bucket for the site Lambda, nothing else); private S3, readable only by the site Lambda's execution role. |
+| **Reliability**            | Every compute and delivery component is an AWS managed service (Lambda, API Gateway, S3); CloudWatch alarms on Lambda errors/throttles/duration and API 5xx/latency ([observability.md](observability.md)); infrastructure is reproducible from source, not hand-configured.                                                                                                                                                                                      |
+| **Performance Efficiency** | HTTP API (lower latency/cost than REST API) with a native JWT authorizer instead of a Lambda authorizer; Lambda execution-environment reuse for the repository/service singletons in `ApplicationFunction` ([lambda.md](lambda.md)); no CDN in front of the frontend, a deliberate trade of edge caching for a simpler single-region architecture — see [`adr/0003-remove-cloudfront.md`](adr/0003-remove-cloudfront.md).                                         |
+| **Cost Optimization**      | Fully serverless, pay-per-use compute and API layer for both the frontend and the API; environment-scaled log retention (2 weeks dev, 1 month test, 6 months prod) instead of indefinite retention everywhere.                                                                                                                                                                                                                                                    |
+| **Sustainability**         | Managed/serverless services scale to zero when idle; no VPC, NAT gateway, or other always-on networking component exists because nothing in this workload requires one yet ([infrastructure.md](infrastructure.md#networking)).                                                                                                                                                                                                                                   |
 
 ## Recorded trade-off
 
@@ -41,10 +41,17 @@ deliberate departure from the original plan and is recorded as
 does not affect any Well-Architected pillar differently than the TypeScript
 alternative would — see that ADR's consequences section.
 
+Serving the frontend via API Gateway + a Lambda instead of CloudFront is a
+third deliberate departure, recorded as
+[`adr/0003-remove-cloudfront.md`](adr/0003-remove-cloudfront.md). It trades
+edge caching and CDN distribution (Performance Efficiency) for a simpler,
+single-region, Lambda-only delivery path, while keeping the bucket exactly
+as private as before — see that ADR's consequences section.
+
 ## Open items for a future review
 
-- No custom domain is configured for any environment yet (CloudFront and API
-  Gateway generated domains are in use) — see
+- No custom domain is configured for any environment yet (both the frontend
+  and API Gateway generated domains are in use) — see
   [deployment.md](deployment.md#adding-a-custom-domain).
 - `deploy.yml` is manually triggered; no automatic promotion-on-merge or
   required-reviewer gate on the `prod` GitHub Environment has been

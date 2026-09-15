@@ -36,22 +36,31 @@ Non-secret Entra identifiers are supplied the same way at every environment
 ```text
 Private S3 bucket (Block Public Access, versioned, SSE, enforceSSL)
         |
-CloudFront Origin Access Control  (origins.S3BucketOrigin.withOriginAccessControl)
+Site Lambda (Node.js, infra/lib/site-handler) -- only this function can
+read the bucket (bucket.grantRead), via the AWS SDK
+  - Extension-less paths (client-side routes) always resolve to index.html,
+    so they survive a browser refresh; a path with a file extension maps
+    1:1 to the matching S3 key, and a genuine miss is a real 404
+  - Attaches the same security headers CloudFront's ResponseHeadersPolicy
+    used to: HSTS, CSP, X-Content-Type-Options, Referrer-Policy,
+    frame-ancestors 'none', Permissions-Policy
+  - Hashed asset paths get long-lived immutable Cache-Control; index.html
+    is always no-cache
         |
-CloudFront distribution
-  - HTTPS only, HTTP -> HTTPS redirect
-  - ResponseHeadersPolicy: HSTS, CSP, X-Content-Type-Options, Referrer-Policy,
-    frame-ancestors 'none', Permissions-Policy (custom header)
-  - 403/404 -> /index.html, 200 (SPA client-side routing survives a refresh)
+API Gateway HTTP API (aws-cdk-lib/aws-apigatewayv2), Lambda proxy
+integration, GET / and GET /{proxy+}
         |
-Optional: ACM certificate (us-east-1) + Route 53 alias, when
+Optional: regional ACM certificate + Route 53 alias, when
 `environments.ts` configures a `domain` for the environment
 ```
 
-The bucket is never a public website; users only ever reach it through
-CloudFront. See `infra/test/frontend-stack.test.ts` for the CDK assertions
-that pin these properties down (block-public-access, OAC, HTTPS redirect,
-SPA error routing, the response headers policy content).
+The bucket is never public; only the site Lambda's execution role can read
+it. There is no CDN or edge cache in front of this API -- every request is
+served live by the Lambda, by design (dropped in favor of simplicity over
+edge caching). See `infra/test/frontend-stack.test.ts` for the CDK
+assertions (block-public-access, least-privilege IAM, the HTTP API routes)
+and `infra/test/site-handler.test.ts` for the Lambda's own behavior (SPA
+fallback, real 404s, the security headers).
 
 ## API stack
 

@@ -84,12 +84,6 @@ jobs:
         run: |
           aws s3 sync apps/web/dist "s3://${{ vars.SITE_BUCKET_NAME }}" --delete
 
-      - name: Invalidate CloudFront cache
-        run: |
-          aws cloudfront create-invalidation \
-            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
-            --paths "/*"
-
       - name: Smoke test the deployed API
         run: |
           curl --fail --silent --show-error "${{ vars.API_BASE_URL }}/health"

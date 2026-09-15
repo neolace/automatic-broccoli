@@ -43,8 +43,7 @@ checkout
   -> configure-aws-credentials (OIDC)      no long-lived AWS keys anywhere
   -> cdk deploy --all --context environment=<env>
   -> vite build (with the target environment's public config)
-  -> aws s3 sync dist/ -> site bucket
-  -> aws cloudfront create-invalidation
+  -> aws s3 sync dist/ -> site bucket    (no CDN cache to invalidate -- see adr/0003)
   -> smoke test: GET <api>/health
   -> smoke test: GET <site url>
 ```

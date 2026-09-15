@@ -52,53 +52,43 @@ describe('FrontendStack', () => {
     });
   });
 
-  it('serves the bucket only through CloudFront with an Origin Access Control', () => {
+  it('grants the site function read-only access to the bucket and nothing else', () => {
     const template = synthesize();
 
-    template.resourceCountIs('AWS::CloudFront::OriginAccessControl', 1);
     template.hasResourceProperties(
-      'AWS::CloudFront::OriginAccessControl',
+      'AWS::IAM::Policy',
       Match.objectLike({
-        OriginAccessControlConfig: Match.objectLike({ SigningBehavior: 'always' }),
+        PolicyDocument: Match.objectLike({
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Action: Match.arrayWith(['s3:GetObject*']),
+              Effect: 'Allow',
+            }),
+          ]),
+        }),
       }),
     );
   });
 
-  it('redirects HTTP to HTTPS', () => {
+  it('routes both the root path and every other path to the site Lambda over HTTP API', () => {
     const template = synthesize();
 
-    template.hasResourceProperties('AWS::CloudFront::Distribution', {
-      DistributionConfig: Match.objectLike({
-        DefaultCacheBehavior: Match.objectLike({ ViewerProtocolPolicy: 'redirect-to-https' }),
-      }),
+    template.resourceCountIs('AWS::ApiGatewayV2::Api', 1);
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', { RouteKey: 'GET /' });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', { RouteKey: 'GET /{proxy+}' });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Integration', {
+      IntegrationType: 'AWS_PROXY',
+      PayloadFormatVersion: '2.0',
     });
   });
 
-  it('routes SPA client-side paths (403/404) back to index.html without caching the fallback', () => {
+  it('gives the site Lambda function a name and the bucket name as an environment variable', () => {
     const template = synthesize();
 
-    template.hasResourceProperties('AWS::CloudFront::Distribution', {
-      DistributionConfig: Match.objectLike({
-        CustomErrorResponses: Match.arrayWith([
-          Match.objectLike({ ErrorCode: 403, ResponseCode: 200, ResponsePagePath: '/index.html' }),
-          Match.objectLike({ ErrorCode: 404, ResponseCode: 200, ResponsePagePath: '/index.html' }),
-        ]),
-      }),
-    });
-  });
-
-  it('attaches a response headers policy with HSTS, a restrictive CSP and no frame embedding', () => {
-    const template = synthesize();
-
-    template.hasResourceProperties('AWS::CloudFront::ResponseHeadersPolicy', {
-      ResponseHeadersPolicyConfig: Match.objectLike({
-        SecurityHeadersConfig: Match.objectLike({
-          StrictTransportSecurity: Match.objectLike({ Override: true }),
-          FrameOptions: Match.objectLike({ FrameOption: 'DENY', Override: true }),
-          ContentSecurityPolicy: Match.objectLike({
-            ContentSecurityPolicy: Match.stringLikeRegexp("frame-ancestors 'none'"),
-          }),
-        }),
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: `${appEnv.name}-app-site`,
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ SITE_BUCKET_NAME: Match.anyValue() }),
       }),
     });
   });

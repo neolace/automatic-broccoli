@@ -1,7 +1,13 @@
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
-import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
-import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import { DomainName, HttpApi, HttpMethod, type IDomainName } from 'aws-cdk-lib/aws-apigatewayv2';
+import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -9,18 +15,23 @@ import type { Construct } from 'constructs';
 
 import type { DomainConfig, EnvironmentConfig } from './config/environments';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 export interface FrontendStackProps extends StackProps {
   readonly appEnv: EnvironmentConfig;
 }
 
 /**
- * The static delivery path: a private S3 bucket behind CloudFront with
- * Origin Access Control. Users never reach S3 directly -- see
- * docs/infrastructure.md.
+ * The static delivery path: a private S3 bucket that only a Lambda function
+ * can read, fronted by an API Gateway HTTP API. The Lambda serves SPA
+ * routing (extension-less paths resolve to index.html) and the response
+ * security headers that CloudFront's ResponseHeadersPolicy used to attach --
+ * see docs/infrastructure.md.
  */
 export class FrontendStack extends Stack {
   readonly bucket: s3.Bucket;
-  readonly distribution: cloudfront.Distribution;
+  readonly siteFunction: lambda.Function;
+  readonly httpApi: HttpApi;
   readonly siteUrl: string;
 
   constructor(scope: Construct, id: string, props: FrontendStackProps) {
@@ -39,132 +50,90 @@ export class FrontendStack extends Stack {
       autoDeleteObjects: !appEnv.isProduction,
     });
 
-    const responseHeadersPolicy = new cloudfront.ResponseHeadersPolicy(this, 'SecurityHeaders', {
-      responseHeadersPolicyName: `${appEnv.name}-app-security-headers`,
-      securityHeadersBehavior: {
-        strictTransportSecurity: {
-          override: true,
-          accessControlMaxAge: Duration.days(365),
-          includeSubdomains: true,
-          preload: true,
-        },
-        contentTypeOptions: { override: true },
-        referrerPolicy: {
-          override: true,
-          referrerPolicy: cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
-        },
-        frameOptions: {
-          override: true,
-          frameOption: cloudfront.HeadersFrameOption.DENY,
-        },
-        contentSecurityPolicy: {
-          override: true,
-          // Tuned for MSAL redirect flows against Entra; tighten further once
-          // the production API/CDN domains are final -- see docs/security.md.
-          contentSecurityPolicy: [
-            "default-src 'self'",
-            "script-src 'self'",
-            "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' data:",
-            "connect-src 'self' https://login.microsoftonline.com",
-            "frame-src 'self' https://login.microsoftonline.com",
-            "frame-ancestors 'none'",
-            "base-uri 'none'",
-            "object-src 'none'",
-          ].join('; '),
-        },
-      },
-      customHeadersBehavior: {
-        customHeaders: [
-          {
-            header: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(), payment=()',
-            override: true,
-          },
-        ],
-      },
+    const siteFunctionLogGroup = new logs.LogGroup(this, 'SiteFunctionLogGroup', {
+      logGroupName: `/aws/lambda/${appEnv.name}-app-site`,
+      retention: appEnv.logRetention,
+      removalPolicy,
     });
+
+    this.siteFunction = new NodejsFunction(this, 'SiteFunction', {
+      functionName: `${appEnv.name}-app-site`,
+      entry: path.join(__dirname, 'site-handler', 'index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      environment: { SITE_BUCKET_NAME: this.bucket.bucketName },
+      logGroup: siteFunctionLogGroup,
+    });
+    this.bucket.grantRead(this.siteFunction);
 
     const domainSetup = this.buildDomainSetup(props.appEnv.domain);
 
-    this.distribution = new cloudfront.Distribution(this, 'Distribution', {
-      comment: `${appEnv.name} application frontend`,
-      defaultRootObject: 'index.html',
-      domainNames: domainSetup?.domainNames,
-      certificate: domainSetup?.certificate,
-      defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(this.bucket),
-        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
-        responseHeadersPolicy,
-        compress: true,
-      },
-      // SPA routing: unknown paths resolve to index.html so client-side routes
-      // survive a browser refresh, without masking genuine 403s from S3 policy.
-      errorResponses: [
-        {
-          httpStatus: 403,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: Duration.seconds(0),
-        },
-        {
-          httpStatus: 404,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: Duration.seconds(0),
-        },
-      ],
-      // Only meaningful with a custom certificate; the shared CloudFront
-      // default certificate fixes its own (TLSv1) security policy.
-      minimumProtocolVersion: domainSetup
-        ? cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021
-        : undefined,
-      httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
-      enableLogging: appEnv.isProduction,
+    this.httpApi = new HttpApi(this, 'HttpApi', {
+      apiName: `${appEnv.name}-app-frontend`,
+      description: 'Serves the built SPA from the private site bucket via a Lambda integration.',
+      defaultDomainMapping: domainSetup ? { domainName: domainSetup.domainName } : undefined,
+    });
+
+    // A greedy {proxy+} route does not match the bare root path, so it needs
+    // its own route alongside the catch-all for every other path.
+    const siteIntegration = new HttpLambdaIntegration('SiteIntegration', this.siteFunction);
+    this.httpApi.addRoutes({ path: '/', methods: [HttpMethod.GET], integration: siteIntegration });
+    this.httpApi.addRoutes({
+      path: '/{proxy+}',
+      methods: [HttpMethod.GET],
+      integration: siteIntegration,
     });
 
     if (domainSetup) {
       new route53.ARecord(this, 'SiteAliasRecord', {
         zone: domainSetup.hostedZone,
         recordName: props.appEnv.domain!.siteDomainName,
-        target: route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(this.distribution)),
+        target: route53.RecordTarget.fromAlias(
+          new targets.ApiGatewayv2DomainProperties(
+            domainSetup.domainName.regionalDomainName,
+            domainSetup.domainName.regionalHostedZoneId,
+          ),
+        ),
       });
       this.siteUrl = `https://${props.appEnv.domain!.siteDomainName}`;
     } else {
-      this.siteUrl = `https://${this.distribution.distributionDomainName}`;
+      this.siteUrl = this.httpApi.apiEndpoint;
     }
 
     new CfnOutput(this, 'SiteBucketName', { value: this.bucket.bucketName });
-    new CfnOutput(this, 'DistributionId', { value: this.distribution.distributionId });
+    new CfnOutput(this, 'SiteFunctionName', { value: this.siteFunction.functionName });
     new CfnOutput(this, 'SiteUrl', { value: this.siteUrl });
   }
 
   /**
-   * Custom domain, ACM certificate (CloudFront requires us-east-1) and
-   * Route 53 hosted zone lookup. Returns undefined when no domain is
-   * configured for this environment, in which case the generated
-   * `*.cloudfront.net` domain is used -- see infra/lib/config/environments.ts.
+   * Custom domain, regional ACM certificate and Route 53 hosted zone lookup.
+   * Returns undefined when no domain is configured for this environment, in
+   * which case the generated `*.execute-api.*.amazonaws.com` domain is used
+   * -- see infra/lib/config/environments.ts. Unlike CloudFront, API Gateway
+   * regional domains take a certificate in the stack's own region, not
+   * necessarily us-east-1.
    */
   private buildDomainSetup(
     domain: DomainConfig | undefined,
-  ):
-    | { domainNames: string[]; certificate: acm.ICertificate; hostedZone: route53.IHostedZone }
-    | undefined {
+  ): { domainName: IDomainName; hostedZone: route53.IHostedZone } | undefined {
     if (!domain) return undefined;
 
     const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
       domainName: domain.hostedZoneName,
     });
 
-    // CloudFront requires the certificate to exist in us-east-1. This stack
-    // must therefore be deployed with env.region === 'us-east-1' whenever a
-    // custom domain is configured (the default region in environments.ts).
     const certificate = new acm.Certificate(this, 'SiteCertificate', {
       domainName: domain.siteDomainName,
       validation: acm.CertificateValidation.fromDns(hostedZone),
     });
 
-    return { domainNames: [domain.siteDomainName], certificate, hostedZone };
+    const domainName = new DomainName(this, 'SiteDomainName', {
+      domainName: domain.siteDomainName,
+      certificate,
+    });
+
+    return { domainName, hostedZone };
   }
 }

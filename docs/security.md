@@ -42,8 +42,10 @@ and by the explicit "never place" list in `apps/web/.env.example`.
 
 ## Content Security Policy
 
-`infra/lib/frontend-stack.ts` attaches a CloudFront `ResponseHeadersPolicy`
-with a CSP tuned for MSAL's redirect flow against Entra:
+`infra/lib/site-handler/index.ts` (the Lambda that serves the frontend from
+S3 — see [`adr/0003-remove-cloudfront.md`](adr/0003-remove-cloudfront.md))
+attaches these as literal response headers on every request, with a CSP
+tuned for MSAL's redirect flow against Entra:
 
 ```text
 default-src 'self'
@@ -86,19 +88,22 @@ depth measure, in case a caller ever passes one by mistake. See
 
 ## IAM
 
-Every Lambda execution role has exactly the AWS-managed
+Every API Lambda execution role has exactly the AWS-managed
 `AWSLambdaBasicExecutionRole` — nothing else. `infra/test/api-stack.test.ts`
 fails the build if a wildcard action/resource or an extra custom policy is
 ever introduced without updating that test, which forces the change to be
-deliberate and reviewed.
+deliberate and reviewed. The one deliberate exception is the frontend's site
+Lambda, which additionally gets read-only access to the site bucket
+(`bucket.grantRead`, scoped to that one bucket) so it can serve the SPA —
+pinned down in `infra/test/frontend-stack.test.ts`.
 
 ## Transport and storage
 
 - S3: Block Public Access enabled, versioned, SSE, `enforceSSL: true`
-  (rejects non-TLS requests to the bucket).
-- CloudFront: HTTPS only, HTTP requests redirected, TLS 1.2+ when a custom
-  certificate is configured.
-- API Gateway: HTTPS only (API Gateway HTTP APIs do not support plain HTTP).
+  (rejects non-TLS requests to the bucket). Only the site Lambda's execution
+  role can read it; there is no other path in.
+- API Gateway: HTTPS only (API Gateway HTTP APIs do not support plain HTTP),
+  TLS 1.2+ when a custom domain and certificate are configured.
 
 ## CORS
 

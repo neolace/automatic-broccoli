@@ -4,19 +4,22 @@
 
 This repository implements the target architecture described in
 [`Microsoft Entra ID + React Vite + AWS Lambda Architecture Plan.md`](../Microsoft%20Entra%20ID%20+%20React%20Vite%20+%20AWS%20Lambda%20Architecture%20Plan.md)
-at the repository root, with one deliberate deviation: **the Lambda API is
-implemented in C# on .NET 10**, not TypeScript. See
-[`adr/0002-dotnet-lambda-runtime.md`](adr/0002-dotnet-lambda-runtime.md) for
-the rationale. Every other decision in the plan — one Entra tenant, one app
-registration, API Gateway JWT authorization, no Cognito, no Amplify, no
-client secret in the browser — is implemented as written.
+at the repository root, with two deliberate deviations: **the Lambda API is
+implemented in C# on .NET 10**, not TypeScript (see
+[`adr/0002-dotnet-lambda-runtime.md`](adr/0002-dotnet-lambda-runtime.md)),
+and **the frontend is served via API Gateway + a small Lambda instead of
+CloudFront** (see
+[`adr/0003-remove-cloudfront.md`](adr/0003-remove-cloudfront.md)). Every
+other decision in the plan — one Entra tenant, one app registration, API
+Gateway JWT authorization, no Cognito, no Amplify, no client secret in the
+browser — is implemented as written.
 
 The system separates four concerns, each with a single owner:
 
 | Concern                                      | Owner                      | Repository location                       |
 | -------------------------------------------- | -------------------------- | ----------------------------------------- |
 | User authentication                          | Microsoft Entra ID         | N/A (external)                            |
-| Static frontend delivery                     | CloudFront + S3            | `apps/web`, `infra/lib/frontend-stack.ts` |
+| Static frontend delivery                     | API Gateway + Lambda + S3  | `apps/web`, `infra/lib/frontend-stack.ts` |
 | API admission (coarse-grained authorization) | API Gateway JWT authorizer | `infra/lib/api-stack.ts`                  |
 | Business logic + fine-grained authorization  | AWS Lambda (C#)            | `apps/api`                                |
 
@@ -67,7 +70,8 @@ flowchart LR
     User["User Browser"]
 
     subgraph AWSFrontend["AWS Frontend Plane"]
-        CF["CloudFront"]
+        SiteAPIGW["API Gateway HTTP API"]
+        SiteLambda["Site Lambda (Node.js)"]
         S3["Private S3 Bucket<br/>React + Vite build"]
     end
 
@@ -82,7 +86,7 @@ flowchart LR
         Lambda["Lambda (C# / .NET 10)"]
     end
 
-    User --> CF --> S3
+    User --> SiteAPIGW --> SiteLambda --> S3
     User -->|"Authorization Code + PKCE"| IdP --> CA -->|"Access Token"| User
     User -->|"Bearer Access Token"| APIGW --> JWT -->|"Authorized"| Lambda
 ```
@@ -102,7 +106,7 @@ reaches AWS.
 `infra/bin/app.ts` deploys three CDK stacks per environment (`dev`, `test`,
 `prod` — see [`infra/lib/config/environments.ts`](../infra/lib/config/environments.ts)):
 
-- **`<env>-app-frontend`** ([frontend-stack.ts](../infra/lib/frontend-stack.ts)) — private S3 bucket, CloudFront with Origin Access Control, response security headers, SPA routing.
+- **`<env>-app-frontend`** ([frontend-stack.ts](../infra/lib/frontend-stack.ts)) — private S3 bucket, an API Gateway HTTP API + site Lambda that reads it, response security headers, SPA routing.
 - **`<env>-app-api`** ([api-stack.ts](../infra/lib/api-stack.ts)) — HTTP API, Entra JWT authorizer, three Lambda functions, access logs, alarms.
 - **`<env>-app-observability`** ([observability-stack.ts](../infra/lib/observability-stack.ts)) — a CloudWatch dashboard over the API stack's resources.
 

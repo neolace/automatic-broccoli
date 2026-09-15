@@ -14,7 +14,7 @@ export default defineConfig({
   },
   build: {
     target: 'es2022',
-    // Hashed asset names allow immutable caching at CloudFront; index.html stays refreshable.
+    // Hashed asset names allow the site Lambda to cache them immutably; index.html stays refreshable.
     sourcemap: false,
   },
 });

@@ -1,5 +1,5 @@
 {
-  "name": "entra-react-aws-lambda",
+  "name": "gm-prime-equities-auth",
   "version": "0.1.0",
   "private": true,
   "description": "Secure SPA: Microsoft Entra ID + React/Vite + API Gateway JWT authorizer + AWS Lambda, provisioned with CDK",

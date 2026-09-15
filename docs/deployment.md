@@ -60,30 +60,31 @@ first `cdk deploy`.
 
 ### Adding a custom domain
 
-By default every environment serves the frontend from the generated
-`*.cloudfront.net` domain and the API from the generated
-`*.execute-api.*.amazonaws.com` domain — no domain or ACM certificate is
-required to deploy. To add a real domain for an environment, uncomment and
-fill in the `domain` block for that environment in
+By default every environment serves the frontend and the API from their
+generated `*.execute-api.*.amazonaws.com` domains — no domain or ACM
+certificate is required to deploy. To add a real domain for an environment,
+uncomment and fill in the `domain` block for that environment in
 [`infra/lib/config/environments.ts`](../infra/lib/config/environments.ts).
-Note the constraint documented in `frontend-stack.ts`: CloudFront requires
-its certificate to exist in `us-east-1`, so that environment's `region` must
-be `us-east-1` whenever a custom domain is configured.
+Unlike CloudFront, the frontend's API Gateway custom domain takes a
+**regional** ACM certificate — issued in the same region the stack deploys
+to, not necessarily `us-east-1` — see
+[`adr/0003-remove-cloudfront.md`](adr/0003-remove-cloudfront.md).
 
 ## Deploying the frontend
 
-`cdk deploy` provisions the bucket and distribution but does not itself
-publish the compiled frontend. After a successful `cdk deploy`:
+`cdk deploy` provisions the bucket, the site Lambda and the HTTP API but
+does not itself publish the compiled frontend. After a successful
+`cdk deploy`:
 
 ```bash
 npm run build --workspace apps/web
 aws s3 sync apps/web/dist s3://<SiteBucketName output> --delete
-aws cloudfront create-invalidation --distribution-id <DistributionId output> --paths "/*"
 ```
 
-`SiteBucketName` and `DistributionId` are printed as CloudFormation outputs
-of the `<env>-app-frontend` stack. `.github/workflows/deploy.yml` automates
-exactly these two steps for CI-driven deploys — see
+There is no CDN cache to invalidate — every request is served live by the
+site Lambda. `SiteBucketName` is printed as a CloudFormation output of the
+`<env>-app-frontend` stack. `.github/workflows/deploy.yml` automates this
+step for CI-driven deploys — see
 [ci-cd.md](ci-cd.md#deployyml--deployment).
 
 ## Configuring CI/CD deployment
@@ -100,7 +101,6 @@ ENTRA_TENANT_ID
 ENTRA_CLIENT_ID
 API_BASE_URL               the API stack's ApiUrl output, once known
 SITE_BUCKET_NAME           the frontend stack's SiteBucketName output
-CLOUDFRONT_DISTRIBUTION_ID the frontend stack's DistributionId output
 SITE_URL                   the frontend stack's SiteUrl output
 ```
 
@@ -111,7 +111,7 @@ AWS access key — see [security.md](security.md). Outline:
 
 1. Add GitHub's OIDC provider to the AWS account (`token.actions.githubusercontent.com`), once per account.
 2. Create an IAM role whose trust policy's `sub` condition is scoped to this repository and, ideally, the specific GitHub Environment (`repo:<org>/<repo>:environment:<env>`).
-3. Attach only the permissions this pipeline needs: `cloudformation:*` on the three stacks, `s3:*` on the site bucket, `cloudfront:CreateInvalidation`, plus whatever the CDK bootstrap role model requires for asset publishing in this account.
+3. Attach only the permissions this pipeline needs: `cloudformation:*` on the three stacks, `s3:*` on the site bucket, plus whatever the CDK bootstrap role model requires for asset publishing in this account.
 4. Record the role ARN as `AWS_DEPLOY_ROLE_ARN`.
 
 ## Rollback

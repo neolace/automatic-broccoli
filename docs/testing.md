@@ -60,13 +60,21 @@ Asserts security-critical properties, not just "the resource exists":
 - Every log group has retention configured.
 - Every documented alarm exists.
 - The S3 bucket blocks all public access, is versioned and encrypted.
-- CloudFront uses an Origin Access Control, redirects to HTTPS, and routes SPA 403/404s to `index.html`.
-- The response headers policy sets HSTS, `frame-ancestors 'none'`, and the other required headers.
+- The site Lambda has read-only access to the site bucket and nothing else.
+- Every route on the frontend's HTTP API is a Lambda proxy integration.
+
+A separate suite, `infra/test/site-handler.test.ts`, unit-tests the site
+Lambda directly (mocking `@aws-sdk/client-s3`): extension-less paths resolve
+to `index.html`, a path with a file extension maps to the matching object,
+a genuine miss on an asset path is a real 404 rather than a masked one, and
+every response carries HSTS, `frame-ancestors 'none'`, and the other
+required security headers.
 
 These tests instantiate real CDK stacks, so `npm run test --workspace infra`
-runs an actual `dotnet publish` of the Lambda project (see
-[infrastructure.md](infrastructure.md#packaging-the-c-lambda)) — expect a
-few extra seconds compared with a pure-TypeScript CDK app.
+runs an actual `dotnet publish` of the API Lambda project (see
+[infrastructure.md](infrastructure.md#packaging-the-c-lambda)) and an esbuild
+bundle of the site Lambda — expect a few extra seconds compared with a
+pure-TypeScript CDK app with no bundled assets.
 
 ## End-to-end (`apps/web/e2e`, Playwright)
 

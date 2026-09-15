@@ -29,7 +29,7 @@ export interface EnvironmentConfig {
   readonly logRetention: RetentionDays;
   /**
    * Custom domain, ACM certificate and Route 53 wiring. Omitted for local/dev
-   * environments that use the generated CloudFront and API Gateway domains.
+   * environments that use the generated API Gateway domains.
    */
   readonly domain?: DomainConfig;
   /** Removal policy safeguard: production resources are retained on stack deletion. */

@@ -60,7 +60,7 @@ export class FrontendStack extends Stack {
       functionName: `${appEnv.name}-app-site`,
       entry: path.join(__dirname, 'site-handler', 'index.ts'),
       handler: 'handler',
-      runtime: lambda.Runtime.NODEJS_22_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       memorySize: 256,
       timeout: Duration.seconds(10),
       environment: { SITE_BUCKET_NAME: this.bucket.bucketName },

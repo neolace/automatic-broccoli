@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '24'
   DOTNET_VERSION: '10.0.x'
   # Non-secret Entra identifiers, needed only so `cdk synth`/infra tests can
   # construct a JWT authorizer. See docs/entra-configuration.md.

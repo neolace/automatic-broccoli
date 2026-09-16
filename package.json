@@ -5,7 +5,7 @@
   "description": "Secure SPA: Microsoft Entra ID + React/Vite + API Gateway JWT authorizer + AWS Lambda, provisioned with CDK",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "workspaces": [
     "packages/shared",
@@ -46,7 +46,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
-    "@types/node": "^22.19.0",
+    "@types/node": "^24.13.5",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",

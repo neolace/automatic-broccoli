@@ -27,5 +27,6 @@ apps/api/**/TestResults/
 .DS_Store
 Thumbs.db
 .idea/
+.vs/
 .vscode/*
 !.vscode/extensions.json

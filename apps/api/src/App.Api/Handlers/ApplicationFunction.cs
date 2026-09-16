@@ -29,41 +29,18 @@ public sealed class ApplicationFunction
         PropertyNameCaseInsensitive = true,
     };
 
-    public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+    public Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
         APIGatewayHttpApiV2ProxyRequest request,
-        ILambdaContext context)
-    {
-        var method = request.RequestContext?.Http?.Method ?? "GET";
-        var correlationId = CorrelationId.Resolve(request.Headers);
-        var logger = Logger.Create(
-            service: "api",
-            environment: Environment.GetEnvironmentVariable("ENVIRONMENT_NAME") ?? "development",
-            awsRequestId: context.AwsRequestId,
-            correlationId: correlationId,
-            route: "/api/applications",
-            method: method);
-
-        try
+        ILambdaContext context) =>
+        LambdaHandler.ExecuteAsync(request, context, "/api/applications", async (auth, logger, ctx) =>
         {
-            var auth = ClaimsExtractor.Extract(request);
-            logger = logger.Child(new Dictionary<string, object?>
-            {
-                ["userOid"] = auth.UserId,
-                ["tenantId"] = auth.TenantId,
-            });
-
-            return method.ToUpperInvariant() switch
+            return ctx.Method.ToUpperInvariant() switch
             {
                 "POST" => await HandleCreateAsync(request, auth, logger),
                 "GET" => await HandleListAsync(auth, logger),
-                _ => HttpResponses.Json(405, new { error = new { code = "METHOD_NOT_ALLOWED", message = "Unsupported method.", correlationId } }),
+                _ => HttpResponses.Json(405, new { error = new { code = "METHOD_NOT_ALLOWED", message = "Unsupported method.", correlationId = ctx.CorrelationId } }),
             };
-        }
-        catch (Exception ex)
-        {
-            return HttpResponses.FromException(ex, correlationId, logger);
-        }
-    }
+        });
 
     private static async Task<APIGatewayHttpApiV2ProxyResponse> HandleCreateAsync(
         APIGatewayHttpApiV2ProxyRequest request,

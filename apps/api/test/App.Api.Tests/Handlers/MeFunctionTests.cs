@@ -23,17 +23,17 @@ public class MeFunctionTests
         };
 
     [Fact]
-    public void FunctionHandler_returns_401_when_claims_are_missing()
+    public async Task FunctionHandler_returns_401_when_claims_are_missing()
     {
         var function = new MeFunction();
-        var response = function.FunctionHandler(RequestWithClaims(null), new TestLambdaContext());
+        var response = await function.FunctionHandler(RequestWithClaims(null), new TestLambdaContext());
 
         Assert.Equal(401, response.StatusCode);
         Assert.Contains("UNAUTHORIZED", response.Body);
     }
 
     [Fact]
-    public void FunctionHandler_never_echoes_a_bearer_token_and_returns_only_allow_listed_fields()
+    public async Task FunctionHandler_never_echoes_a_bearer_token_and_returns_only_allow_listed_fields()
     {
         var request = RequestWithClaims(new Dictionary<string, string>
         {
@@ -44,7 +44,7 @@ public class MeFunctionTests
         request.Headers["Authorization"] = "Bearer super-secret-token-value";
 
         var function = new MeFunction();
-        var response = function.FunctionHandler(request, new TestLambdaContext());
+        var response = await function.FunctionHandler(request, new TestLambdaContext());
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("user-123", response.Body);

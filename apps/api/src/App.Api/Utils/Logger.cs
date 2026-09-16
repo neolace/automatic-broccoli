@@ -1,4 +1,6 @@
+using System.Collections.Frozen;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace App.Api.Utils;
 
@@ -12,14 +14,13 @@ namespace App.Api.Utils;
 /// </summary>
 public sealed class Logger
 {
-    private static readonly HashSet<string> DenylistedFields = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "token", "accesstoken", "idtoken", "authorization", "password", "secret", "cookie",
-    };
+    private static readonly FrozenSet<string> DenylistedFields = FrozenSet.ToFrozenSet(
+        ["token", "accesstoken", "idtoken", "authorization", "password", "secret", "cookie"],
+        StringComparer.OrdinalIgnoreCase);
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
     private readonly IReadOnlyDictionary<string, object?> _context;

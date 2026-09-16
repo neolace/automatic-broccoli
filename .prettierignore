@@ -9,3 +9,5 @@ package-lock.json
 apps/api/**/bin
 apps/api/**/obj
 apps/api/**/TestResults
+apps/api/.vs
+apps/api/.idea

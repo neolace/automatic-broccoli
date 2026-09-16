@@ -10,7 +10,7 @@ with short-lived federated credentials — never long-lived AWS access keys.
 
 ## `ci.yml` — quality gates
 
-Runs on every pull request and on pushes to `main`
+Runs on every pull request and on pushes to `master`
 ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):
 
 ```mermaid
@@ -104,11 +104,12 @@ variables and the AWS OIDC role setup.
 flowchart TD
     Checkout["checkout"] --> Validate["npm run validate<br/>(repeat the quality gates)"]
     Validate --> Creds["configure-aws-credentials (OIDC)<br/>no long-lived AWS keys anywhere"]
-    Creds --> Deploy["cdk deploy --all --context environment=&lt;env&gt;"]
-    Deploy --> FeBuild["vite build<br/>(target environment's public config)"]
-    FeBuild --> Sync["aws s3 sync dist/ -&gt; site bucket<br/>no CDN cache to invalidate -- see adr/0003"]
-    Sync --> HealthCheck["smoke test: GET &lt;api&gt;/health"]
-    HealthCheck --> SiteCheck["smoke test: GET &lt;site url&gt;"]
+    Creds --> Deploy["cdk deploy --all --outputs-file<br/>--context environment=&lt;env&gt;"]
+    Deploy --> Resolve["Read ApiUrl / SiteBucketName / SiteUrl<br/>from stack outputs"]
+    Resolve --> FeBuild["vite build<br/>(VITE_API_BASE_URL from ApiUrl)"]
+    FeBuild --> Sync["aws s3 sync dist/ -&gt; SiteBucketName<br/>no CDN cache to invalidate -- see adr/0003"]
+    Sync --> HealthCheck["smoke test: GET ApiUrl/health"]
+    HealthCheck --> SiteCheck["smoke test: GET SiteUrl"]
 ```
 
 A deployment is not considered complete when `cdk deploy` returns success —

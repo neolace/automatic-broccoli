@@ -6,6 +6,7 @@ import {
   type EnvironmentName,
   loadEntraConfig,
   loadEnvironmentConfig,
+  resolveApiOrigin,
 } from '../lib/config/environments';
 import { FrontendStack } from '../lib/frontend-stack';
 import { ObservabilityStack } from '../lib/observability-stack';
@@ -22,9 +23,15 @@ const entra = loadEntraConfig();
 const env = { account: appEnv.account, region: appEnv.region };
 const stackPrefix = `${appEnv.name}-app`;
 
-new FrontendStack(app, `${stackPrefix}-frontend`, { appEnv, env });
-
+// API stack first so the frontend site Lambda can receive the resolved API
+// origin for CSP connect-src (custom domain or execute-api URL).
 const apiStack = new ApiStack(app, `${stackPrefix}-api`, { appEnv, entra, env });
+
+new FrontendStack(app, `${stackPrefix}-frontend`, {
+  appEnv,
+  apiOrigin: resolveApiOrigin(appEnv, apiStack.apiUrl),
+  env,
+});
 
 new ObservabilityStack(app, `${stackPrefix}-observability`, {
   appEnv,

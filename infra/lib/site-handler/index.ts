@@ -7,25 +7,35 @@ const s3 = new S3Client({});
 /**
  * Security headers previously attached by CloudFront's ResponseHeadersPolicy.
  * CSP is tuned for MSAL redirect flows against Entra -- see docs/security.md.
+ * `connect-src` includes the API origin from `API_ORIGIN` so the SPA can call
+ * the configured API host (not only `'self'`).
  */
-const securityHeaders: Record<string, string> = {
-  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
-  'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'X-Frame-Options': 'DENY',
-  'Content-Security-Policy': [
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
-    "connect-src 'self' https://login.microsoftonline.com",
-    "frame-src 'self' https://login.microsoftonline.com",
-    "frame-ancestors 'none'",
-    "base-uri 'none'",
-    "object-src 'none'",
-  ].join('; '),
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
-};
+export function buildSecurityHeaders(apiOrigin = process.env.API_ORIGIN): Record<string, string> {
+  const normalizedApiOrigin = apiOrigin?.trim().replace(/\/$/, '');
+  const connectSrc = ["'self'", 'https://login.microsoftonline.com'];
+  if (normalizedApiOrigin) {
+    connectSrc.push(normalizedApiOrigin);
+  }
+
+  return {
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'X-Frame-Options': 'DENY',
+    'Content-Security-Policy': [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      `connect-src ${connectSrc.join(' ')}`,
+      "frame-src 'self' https://login.microsoftonline.com",
+      "frame-ancestors 'none'",
+      "base-uri 'none'",
+      "object-src 'none'",
+    ].join('; '),
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
+  };
+}
 
 async function getObject(key: string) {
   const result = await s3.send(new GetObjectCommand({ Bucket: bucketName, Key: key }));
@@ -48,6 +58,7 @@ export async function handler(
   const lastSegment = requestPath.slice(requestPath.lastIndexOf('/') + 1);
   const hasExtension = lastSegment.includes('.');
   const key = requestPath === '/' || !hasExtension ? 'index.html' : requestPath.replace(/^\/+/, '');
+  const securityHeaders = buildSecurityHeaders();
 
   try {
     const { body, contentType } = await getObject(key);

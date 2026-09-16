@@ -22,6 +22,11 @@ otherwise it mints a fresh one, so a hostile header value can never be used
 to inject content into logs. Every error response includes the (possibly
 regenerated) correlation id so a user can quote it to support.
 
+API Gateway HTTP API access logs cannot include arbitrary request headers, so
+they record `requestId` (and route/status/latency) only. Tie an access-log
+line to Lambda logs via that `requestId` / `awsRequestId`, and use
+`correlationId` inside the Lambda structured logs for end-to-end tracing.
+
 ```mermaid
 %%{init: {
   "theme": "base",
@@ -53,7 +58,7 @@ sequenceDiagram
     SPA->>APIGW: Request + x-correlation-id header
     APIGW->>Lambda: Invoke (header forwarded)
     Lambda->>Lambda: Validate header charset, or mint a fresh id
-    APIGW->>CW: Access log (requestId, correlationId, route, status, latency)
+    APIGW->>CW: Access log (requestId, route, status, latency)
     Lambda->>CW: Structured JSON log line (correlationId, route, userOid, ...)
     Lambda-->>SPA: Response, including correlationId (even on error)
     CW->>CW: Dashboard + alarms aggregate trends across both log streams

@@ -19,6 +19,8 @@ public sealed class ApplicationService(IApplicationRepository repository)
         CreateApplicationRequest request,
         CancellationToken cancellationToken = default)
     {
+        Authorization.RequireScope(auth, "access_as_user");
+
         var name = request.Name?.Trim();
         var details = new Dictionary<string, string>();
 
@@ -53,6 +55,9 @@ public sealed class ApplicationService(IApplicationRepository repository)
 
     public async Task<IReadOnlyList<ApplicationRecord>> ListForCurrentUserAsync(
         AuthContext auth,
-        CancellationToken cancellationToken = default) =>
-        await repository.ListByOwnerAsync(auth.UserId, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        Authorization.RequireScope(auth, "access_as_user");
+        return await repository.ListByOwnerAsync(auth.UserId, cancellationToken);
+    }
 }

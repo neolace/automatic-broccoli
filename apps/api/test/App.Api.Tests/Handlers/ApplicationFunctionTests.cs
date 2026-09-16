@@ -7,7 +7,10 @@ namespace App.Api.Tests.Handlers;
 
 public class ApplicationFunctionTests
 {
-    private static APIGatewayHttpApiV2ProxyRequest BuildRequest(string method, string? body = null) =>
+    private static APIGatewayHttpApiV2ProxyRequest BuildRequest(
+        string method,
+        string? body = null,
+        string scope = "access_as_user") =>
         new()
         {
             Headers = new Dictionary<string, string>(),
@@ -23,7 +26,7 @@ public class ApplicationFunctionTests
                         {
                             ["oid"] = "user-123",
                             ["tid"] = "tenant-456",
-                            ["scp"] = "access_as_user",
+                            ["scp"] = scope,
                         },
                     },
                 },
@@ -62,5 +65,17 @@ public class ApplicationFunctionTests
         var response = await function.FunctionHandler(BuildRequest("DELETE"), new TestLambdaContext());
 
         Assert.Equal(405, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_returns_403_without_required_scope()
+    {
+        var function = new ApplicationFunction();
+        var response = await function.FunctionHandler(
+            BuildRequest("GET", scope: "unrelated_scope"),
+            new TestLambdaContext());
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("FORBIDDEN", response.Body);
     }
 }

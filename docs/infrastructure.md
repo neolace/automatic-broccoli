@@ -84,8 +84,8 @@ read the bucket (bucket.grantRead), via the AWS SDK
     so they survive a browser refresh; a path with a file extension maps
     1:1 to the matching S3 key, and a genuine miss is a real 404
   - Attaches the same security headers CloudFront's ResponseHeadersPolicy
-    used to: HSTS, CSP, X-Content-Type-Options, Referrer-Policy,
-    frame-ancestors 'none', Permissions-Policy
+    used to: HSTS, CSP (connect-src includes API_ORIGIN), X-Content-Type-Options,
+    Referrer-Policy, frame-ancestors 'none', Permissions-Policy
   - Hashed asset paths get long-lived immutable Cache-Control; index.html
     is always no-cache
         |
@@ -108,19 +108,21 @@ fallback, real 404s, the security headers).
 
 ```text
 HttpApi (aws-cdk-lib/aws-apigatewayv2)
-  - corsPreflight restricted to environment.corsOrigins (never "*")
+  - corsPreflight restricted to resolveCorsOrigins(env) (never "*"); when a
+    custom site domain is configured it is included automatically
+  - Optional custom domain: ACM + DomainName mapping + Route 53 for apiDomainName
   - HttpJwtAuthorizer(issuer = https://login.microsoftonline.com/<TENANT_ID>/v2.0,
                       jwtAudience = [<CLIENT_ID>])
   - GET  /health              no authorizer
   - GET  /api/me               authorizer + authorizationScopes: ["access_as_user"]
   - GET|POST /api/applications authorizer + authorizationScopes: ["access_as_user"]
   - Access log group (JSON format: requestId, route, status, latency -- never
-    the Authorization header or claims)
+    the Authorization header or claims; correlation ids live in Lambda logs)
   - Default route throttling (burst 100 / rate 50, adjust per environment)
         |
 3x AWS Lambda (C# / .NET 10) -- see lambda.md
   - One published assembly, three handler strings
-  - AWSLambdaBasicExecutionRole only
+  - AWSLambdaBasicExecutionRole + AWSXRayDaemonWriteAccess (Tracing.ACTIVE)
   - Dedicated CloudWatch log group per function, retention from environment.logRetention
         |
 CloudWatch Alarms: Lambda errors / throttles / p99 duration per function,

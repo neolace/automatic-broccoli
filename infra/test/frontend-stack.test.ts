@@ -1,7 +1,7 @@
 import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
-import { describe, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { EnvironmentConfig } from '../lib/config/environments';
 import { FrontendStack } from '../lib/frontend-stack';
@@ -14,10 +14,13 @@ const appEnv: EnvironmentConfig = {
   isProduction: false,
 };
 
+const apiOrigin = 'https://api.example.com';
+
 function synthesize() {
   const app = new App();
   const stack = new FrontendStack(app, 'TestFrontendStack', {
     appEnv,
+    apiOrigin,
     env: { account: '123456789012', region: 'us-east-1' },
   });
   return Template.fromStack(stack);
@@ -82,14 +85,26 @@ describe('FrontendStack', () => {
     });
   });
 
-  it('gives the site Lambda function a name and the bucket name as an environment variable', () => {
+  it('gives the site Lambda the bucket name and API origin as environment variables', () => {
     const template = synthesize();
 
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: `${appEnv.name}-app-site`,
       Environment: Match.objectLike({
-        Variables: Match.objectLike({ SITE_BUCKET_NAME: Match.anyValue() }),
+        Variables: Match.objectLike({
+          SITE_BUCKET_NAME: Match.anyValue(),
+          API_ORIGIN: apiOrigin,
+        }),
       }),
     });
+  });
+
+  it('passes the configured API origin through for CSP connect-src', () => {
+    const template = synthesize();
+    const functions = template.findResources('AWS::Lambda::Function');
+    const siteFn = Object.values(functions).find(
+      (fn) => fn.Properties.FunctionName === `${appEnv.name}-app-site`,
+    );
+    expect(siteFn?.Properties.Environment.Variables.API_ORIGIN).toBe(apiOrigin);
   });
 });

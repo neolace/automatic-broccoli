@@ -19,6 +19,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface FrontendStackProps extends StackProps {
   readonly appEnv: EnvironmentConfig;
+  /**
+   * Public HTTPS origin of the API (custom domain or execute-api URL). Wired
+   * into the site Lambda as `API_ORIGIN` so CSP `connect-src` allows the SPA
+   * to call the API -- see docs/security.md.
+   */
+  readonly apiOrigin: string;
 }
 
 /**
@@ -37,7 +43,7 @@ export class FrontendStack extends Stack {
   constructor(scope: Construct, id: string, props: FrontendStackProps) {
     super(scope, id, props);
 
-    const { appEnv } = props;
+    const { appEnv, apiOrigin } = props;
     const removalPolicy = appEnv.isProduction ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY;
 
     this.bucket = new s3.Bucket(this, 'SiteBucket', {
@@ -63,7 +69,10 @@ export class FrontendStack extends Stack {
       runtime: lambda.Runtime.NODEJS_24_X,
       memorySize: 256,
       timeout: Duration.seconds(10),
-      environment: { SITE_BUCKET_NAME: this.bucket.bucketName },
+      environment: {
+        SITE_BUCKET_NAME: this.bucket.bucketName,
+        API_ORIGIN: apiOrigin.replace(/\/$/, ''),
+      },
       logGroup: siteFunctionLogGroup,
     });
     this.bucket.grantRead(this.siteFunction);

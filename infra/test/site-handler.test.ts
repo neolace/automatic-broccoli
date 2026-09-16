@@ -13,8 +13,9 @@ vi.mock('@aws-sdk/client-s3', async () => {
 });
 
 process.env.SITE_BUCKET_NAME = 'test-site-bucket';
+process.env.API_ORIGIN = 'https://api.example.com';
 
-const { handler } = await import('../lib/site-handler/index');
+const { handler, buildSecurityHeaders } = await import('../lib/site-handler/index');
 const { NoSuchKey } = await import('@aws-sdk/client-s3');
 
 function event(rawPath: string): APIGatewayProxyEventV2 {
@@ -32,6 +33,7 @@ function sentKey(): unknown {
 describe('site-handler', () => {
   beforeEach(() => {
     send.mockReset();
+    process.env.API_ORIGIN = 'https://api.example.com';
   });
 
   it('serves index.html for the root path', async () => {
@@ -83,5 +85,22 @@ describe('site-handler', () => {
       'Content-Security-Policy': expect.stringContaining("frame-ancestors 'none'"),
       'Permissions-Policy': expect.stringContaining('camera=()'),
     });
+  });
+
+  it('includes the configured API host in CSP connect-src', async () => {
+    send.mockResolvedValueOnce(objectResult(Buffer.from('<html/>'), 'text/html'));
+
+    const response = await handler(event('/'));
+    const csp = response.headers?.['Content-Security-Policy'] as string;
+
+    expect(csp).toContain('connect-src');
+    expect(csp).toContain('https://api.example.com');
+    expect(csp).toContain('https://login.microsoftonline.com');
+  });
+
+  it('buildSecurityHeaders uses the provided API origin without a trailing slash', () => {
+    const headers = buildSecurityHeaders('https://api.dev.example.com/');
+    expect(headers['Content-Security-Policy']).toContain('https://api.dev.example.com');
+    expect(headers['Content-Security-Policy']).not.toContain('https://api.dev.example.com/');
   });
 });

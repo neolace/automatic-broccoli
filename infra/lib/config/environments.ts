@@ -24,7 +24,12 @@ export interface EnvironmentConfig {
   readonly name: EnvironmentName;
   readonly account?: string;
   readonly region: string;
-  /** Origins the API's CORS policy allows for this environment. */
+  /**
+   * Origins the API's CORS policy allows for this environment. Always include
+   * every origin browsers will use for the SPA (local Vite, custom site
+   * domain, or the execute-api site URL). When `domain` is set,
+   * `resolveCorsOrigins` also adds `https://<siteDomainName>`.
+   */
   readonly corsOrigins: string[];
   readonly logRetention: RetentionDays;
   /**
@@ -47,6 +52,8 @@ const ENVIRONMENTS: Record<EnvironmentName, EnvironmentConfig> = {
   test: {
     name: 'test',
     region: process.env.AWS_REGION ?? 'us-east-1',
+    // Matches the SPA origin browsers will use once a custom domain is wired
+    // (or keep as the documented stand-in until domain is uncommented).
     corsOrigins: ['https://test.app.example.com'],
     logRetention: RetentionDays.ONE_MONTH,
     isProduction: false,
@@ -57,8 +64,9 @@ const ENVIRONMENTS: Record<EnvironmentName, EnvironmentConfig> = {
     corsOrigins: ['https://app.example.com'],
     logRetention: RetentionDays.SIX_MONTHS,
     isProduction: true,
-    // Populate to provision a custom domain, ACM certificate and Route 53
-    // records for production. Left undefined until a real domain is owned.
+    // Populate to provision custom domains, ACM certificates and Route 53
+    // records for both the SPA and the API. Left undefined until a real
+    // domain is owned.
     // domain: {
     //   hostedZoneName: 'example.com',
     //   siteDomainName: 'app.example.com',
@@ -70,6 +78,27 @@ const ENVIRONMENTS: Record<EnvironmentName, EnvironmentConfig> = {
 export function loadEnvironmentConfig(name: EnvironmentName): EnvironmentConfig {
   const config = ENVIRONMENTS[name];
   return { ...config, account: process.env.CDK_DEFAULT_ACCOUNT };
+}
+
+/**
+ * CORS allow-list for the API. Starts from `corsOrigins` and, when a custom
+ * site domain is configured, always includes that SPA origin so browsers and
+ * the API stay aligned with the same DomainConfig.
+ */
+export function resolveCorsOrigins(appEnv: EnvironmentConfig): string[] {
+  const origins = new Set(appEnv.corsOrigins);
+  if (appEnv.domain) {
+    origins.add(`https://${appEnv.domain.siteDomainName}`);
+  }
+  return [...origins];
+}
+
+/** Public HTTPS origin of the API for this environment (custom domain when set). */
+export function resolveApiOrigin(appEnv: EnvironmentConfig, executeApiUrl: string): string {
+  if (appEnv.domain) {
+    return `https://${appEnv.domain.apiDomainName}`;
+  }
+  return executeApiUrl.replace(/\/$/, '');
 }
 
 /**

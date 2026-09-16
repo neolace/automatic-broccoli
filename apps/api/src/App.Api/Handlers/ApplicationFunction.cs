@@ -34,6 +34,8 @@ public sealed class ApplicationFunction
         ILambdaContext context) =>
         LambdaHandler.ExecuteAsync(request, context, "/api/applications", async (auth, logger, ctx) =>
         {
+            Authorization.RequireScope(auth, "access_as_user");
+
             return ctx.Method.ToUpperInvariant() switch
             {
                 "POST" => await HandleCreateAsync(request, auth, logger),

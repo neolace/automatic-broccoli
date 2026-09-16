@@ -3,7 +3,7 @@
 ## Prerequisites
 
 ```text
-Node.js >= 22
+Node.js >= 24
 .NET SDK 10.0.x           (dotnet --version)
 AWS account + credentials with rights to create the resources below
 An Entra app registration -- see entra-configuration.md
@@ -62,13 +62,28 @@ first `cdk deploy`.
 
 By default every environment serves the frontend and the API from their
 generated `*.execute-api.*.amazonaws.com` domains — no domain or ACM
-certificate is required to deploy. To add a real domain for an environment,
+certificate is required to deploy. To add real domains for an environment,
 uncomment and fill in the `domain` block for that environment in
-[`infra/lib/config/environments.ts`](../infra/lib/config/environments.ts).
-Unlike CloudFront, the frontend's API Gateway custom domain takes a
-**regional** ACM certificate — issued in the same region the stack deploys
-to, not necessarily `us-east-1` — see
+[`infra/lib/config/environments.ts`](../infra/lib/config/environments.ts):
+
+```ts
+domain: {
+  hostedZoneName: 'example.com',
+  siteDomainName: 'app.example.com',
+  apiDomainName: 'api.example.com',
+},
+```
+
+Both `siteDomainName` and `apiDomainName` are wired the same way: regional
+ACM certificate (DNS-validated against the hosted zone), API Gateway HTTP
+API custom domain mapping, and a Route 53 alias A-record. Unlike CloudFront,
+these take a **regional** ACM certificate — issued in the same region the
+stack deploys to, not necessarily `us-east-1` — see
 [`adr/0003-remove-cloudfront.md`](adr/0003-remove-cloudfront.md).
+
+When `domain` is set, `resolveCorsOrigins` also allows
+`https://<siteDomainName>` on the API, and the site Lambda's CSP
+`connect-src` includes `https://<apiDomainName>`.
 
 ## Deploying the frontend
 
@@ -99,10 +114,12 @@ AWS_DEPLOY_ROLE_ARN        IAM role ARN with an OIDC trust policy scoped to
 AWS_REGION
 ENTRA_TENANT_ID
 ENTRA_CLIENT_ID
-API_BASE_URL               the API stack's ApiUrl output, once known
-SITE_BUCKET_NAME           the frontend stack's SiteBucketName output
-SITE_URL                   the frontend stack's SiteUrl output
 ```
+
+`ApiUrl`, `SiteBucketName` and `SiteUrl` are **not** pre-seeded. After
+`cdk deploy --outputs-file`, the workflow reads those CloudFormation outputs
+and feeds them into the frontend build (`VITE_API_BASE_URL`), `aws s3 sync`,
+and the smoke-test curls.
 
 ### Creating the OIDC deploy role
 

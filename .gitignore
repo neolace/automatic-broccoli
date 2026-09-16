@@ -18,6 +18,11 @@ test-results/
 apps/web/e2e/.auth/
 apps/api/**/TestResults/
 
+# Logs / caches
+*.log
+npm-debug.log*
+.eslintcache
+
 # Environment files (identifiers only, but keep per-developer values out of git)
 .env
 .env.*
@@ -30,3 +35,4 @@ Thumbs.db
 .vs/
 .vscode/*
 !.vscode/extensions.json
+.claude/settings.local.json

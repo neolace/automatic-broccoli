@@ -6,23 +6,51 @@ The architecture has three authorization boundaries, and this codebase keeps
 them separate deliberately — collapsing them into one another is the failure
 mode this document exists to prevent.
 
-```text
-Microsoft Entra ID
-      | Authentication (who is the user, did they satisfy MFA/Conditional Access)
-      v
-Access Token
-      | OAuth 2.0 Authorization Code Flow + PKCE
-      v
-API Gateway
-      | JWT validation: signature, issuer, audience, expiry, scope
-      v
-JWT Authorizer
-      | Valid, correctly-scoped claims only
-      v
-Lambda (C#)
-      | Business authorization: ownership, role, resource-level rules
-      v
-Application data
+```mermaid
+%%{init: {
+  "theme": "base",
+  "securityLevel": "strict",
+  "themeVariables": {
+    "background": "#0d1117",
+    "primaryColor": "#161b22",
+    "primaryTextColor": "#f0f6fc",
+    "primaryBorderColor": "#58a6ff",
+    "secondaryColor": "#21262d",
+    "secondaryTextColor": "#f0f6fc",
+    "secondaryBorderColor": "#3fb950",
+    "tertiaryColor": "#1c2128",
+    "tertiaryTextColor": "#f0f6fc",
+    "tertiaryBorderColor": "#d29922",
+    "lineColor": "#58a6ff",
+    "textColor": "#f0f6fc",
+    "clusterBkg": "#161b22",
+    "clusterBorder": "#30363d",
+    "edgeLabelBackground": "#0d1117"
+  }
+}}%%
+flowchart TD
+    Entra["Microsoft Entra ID"] -->|"Authentication: who is the user,<br/>did they satisfy MFA/Conditional Access"| Token["Access Token"]
+    Token -->|"OAuth 2.0 Authorization Code Flow + PKCE"| Gateway["API Gateway"]
+
+    subgraph AuthN["Authentication boundary"]
+        Entra
+        Token
+    end
+
+    Gateway -->|"JWT validation:<br/>signature, issuer, audience, expiry, scope"| Authorizer["JWT Authorizer"]
+    Authorizer -->|"Valid, correctly-scoped claims only"| Lambda["Lambda (C#)"]
+
+    subgraph AuthZCoarse["Coarse-grained authorization boundary"]
+        Gateway
+        Authorizer
+    end
+
+    Lambda -->|"Business authorization:<br/>ownership, role, resource-level rules"| Data["Application data"]
+
+    subgraph AuthZFine["Fine-grained authorization boundary"]
+        Lambda
+        Data
+    end
 ```
 
 A frontend route cannot grant backend access
@@ -42,10 +70,11 @@ and by the explicit "never place" list in `apps/web/.env.example`.
 
 ## Content Security Policy
 
-`infra/lib/site-handler/index.ts` (the Lambda that serves the frontend from
-S3 — see [`adr/0003-remove-cloudfront.md`](adr/0003-remove-cloudfront.md))
-attaches these as literal response headers on every request, with a CSP
-tuned for MSAL's redirect flow against Entra:
+[`infra/lib/site-handler/index.ts`](../infra/lib/site-handler/index.ts) (the
+Lambda that serves the frontend from S3 — see
+[`adr/0003-remove-cloudfront.md`](adr/0003-remove-cloudfront.md)) attaches
+these as literal response headers on every request, with a CSP tuned for
+MSAL's redirect flow against Entra:
 
 ```text
 default-src 'self'

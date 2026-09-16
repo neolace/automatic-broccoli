@@ -12,6 +12,48 @@ and its Lambda functions, and
 owns the dashboard that reads both. `infra/bin/app.ts` wires the three
 together for one environment.
 
+```mermaid
+%%{init: {
+  "theme": "base",
+  "securityLevel": "strict",
+  "themeVariables": {
+    "background": "#0d1117",
+    "primaryColor": "#161b22",
+    "primaryTextColor": "#f0f6fc",
+    "primaryBorderColor": "#58a6ff",
+    "secondaryColor": "#21262d",
+    "secondaryTextColor": "#f0f6fc",
+    "secondaryBorderColor": "#3fb950",
+    "tertiaryColor": "#1c2128",
+    "tertiaryTextColor": "#f0f6fc",
+    "tertiaryBorderColor": "#d29922",
+    "lineColor": "#58a6ff",
+    "textColor": "#f0f6fc",
+    "clusterBkg": "#161b22",
+    "clusterBorder": "#30363d",
+    "edgeLabelBackground": "#0d1117"
+  }
+}}%%
+flowchart LR
+    User["User Browser"]
+
+    subgraph Frontend["&lt;env&gt;-app-frontend"]
+        FGW["API Gateway HTTP API"] --> FSite["Site Lambda (Node.js)"] --> FS3["Private S3 Bucket"]
+    end
+
+    subgraph Api["&lt;env&gt;-app-api"]
+        AGW["API Gateway HTTP API"] --> AJWT["Entra JWT Authorizer"] --> AFns["3x Lambda (C# / .NET 10)<br/>Health, Me, Application"]
+    end
+
+    subgraph Observability["&lt;env&gt;-app-observability"]
+        Dash["CloudWatch Dashboard"]
+    end
+
+    User --> FGW
+    User -->|"Bearer access token"| AGW
+    Api -->|"invocation + error metrics"| Dash
+```
+
 ## Environments
 
 [`infra/lib/config/environments.ts`](../infra/lib/config/environments.ts)

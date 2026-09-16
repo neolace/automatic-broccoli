@@ -10,6 +10,51 @@ API Gateway's coarse-grained scope check, and Lambda's fine-grained business
 authorization. See [security.md](security.md) for how these fit alongside
 Entra in the overall boundary model.
 
+```mermaid
+%%{init: {
+  "theme": "base",
+  "securityLevel": "strict",
+  "themeVariables": {
+    "background": "#0d1117",
+    "primaryColor": "#161b22",
+    "primaryTextColor": "#f0f6fc",
+    "primaryBorderColor": "#58a6ff",
+    "secondaryColor": "#21262d",
+    "secondaryTextColor": "#f0f6fc",
+    "secondaryBorderColor": "#3fb950",
+    "tertiaryColor": "#1c2128",
+    "tertiaryTextColor": "#f0f6fc",
+    "lineColor": "#58a6ff",
+    "textColor": "#f0f6fc",
+    "clusterBkg": "#161b22",
+    "clusterBorder": "#30363d",
+    "edgeLabelBackground": "#0d1117"
+  }
+}}%%
+flowchart TD
+    Req["Incoming request + Bearer token"] --> Gw["API Gateway: signature, issuer, audience, expiry"]
+    Gw -->|"missing access_as_user scope"| Reject["403 (Lambda never invoked)"]
+    Gw -->|"valid + correctly scoped"| Handler["Lambda handler"]
+
+    subgraph Coarse["Coarse-grained: API Gateway"]
+        Gw
+        Reject
+    end
+
+    Handler --> Claims["ClaimsExtractor -&gt; AuthContext"]
+    Claims --> Checks["Authorization.RequireScope / RequireRole / RequireOwnership"]
+    Checks -->|"fails"| ApiEx["Typed ApiException -&gt; HTTP status"]
+    Checks -->|"passes"| Service["Service business logic<br/>e.g. ApplicationService"]
+
+    subgraph Fine["Fine-grained: Lambda"]
+        Handler
+        Claims
+        Checks
+        ApiEx
+        Service
+    end
+```
+
 ## Coarse-grained: API Gateway scope check
 
 `infra/lib/api-stack.ts` requires the `access_as_user` scope on every

@@ -3,8 +3,7 @@
 ## Overview
 
 This repository implements the target architecture described in
-[`Microsoft Entra ID + React Vite + AWS Lambda Architecture Plan.md`](../Microsoft%20Entra%20ID%20+%20React%20Vite%20+%20AWS%20Lambda%20Architecture%20Plan.md)
-at the repository root, with two deliberate deviations: **the Lambda API is
+[`docs/plan.md`](plan.md), with two deliberate deviations: **the Lambda API is
 implemented in C# on .NET 10**, not TypeScript (see
 [`adr/0002-dotnet-lambda-runtime.md`](adr/0002-dotnet-lambda-runtime.md)),
 and **the frontend is served via API Gateway + a small Lambda instead of

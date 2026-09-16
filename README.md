@@ -20,11 +20,10 @@ React 19 + Vite + TypeScript  --MSAL.js, PKCE-->  Microsoft Entra ID
                                                                     Application services
 ```
 
-Full design rationale lives in
-[`Microsoft Entra ID + React Vite + AWS Lambda Architecture Plan.md`](<Microsoft Entra ID + React Vite + AWS Lambda Architecture Plan.md>)
-at the repository root. This implementation follows that plan with one
-explicit, documented deviation — the Lambda API is C# on .NET 10, not
-TypeScript — see [`docs/adr/0002-dotnet-lambda-runtime.md`](docs/adr/0002-dotnet-lambda-runtime.md).
+Full design rationale lives in [`docs/plan.md`](docs/plan.md). This
+implementation follows that plan with one explicit, documented deviation —
+the Lambda API is C# on .NET 10, not TypeScript — see
+[`docs/adr/0002-dotnet-lambda-runtime.md`](docs/adr/0002-dotnet-lambda-runtime.md).
 
 ## Repository layout
 
@@ -66,6 +65,7 @@ npm run validate   # format:check, lint, typecheck, test, build (TS + C#)
 
 | Document                                                   | Covers                                                |
 | ---------------------------------------------------------- | ----------------------------------------------------- |
+| [docs/plan.md](docs/plan.md)                               | The original target architecture and delivery plan    |
 | [docs/architecture.md](docs/architecture.md)               | System overview, request paths, stacks                |
 | [docs/entra-configuration.md](docs/entra-configuration.md) | Creating and configuring the Entra app registration   |
 | [docs/authentication.md](docs/authentication.md)           | MSAL sign-in flow and states                          |
@@ -84,7 +84,7 @@ npm run validate   # format:check, lint, typecheck, test, build (TS + C#)
 
 ## Definition of done
 
-See the plan's [Definition of Done](<Microsoft Entra ID + React Vite + AWS Lambda Architecture Plan.md#29-definition-of-done>)
-section for the full release gate. As of this implementation: 48 frontend/
+See the plan's [Definition of Done](docs/plan.md#29-definition-of-done)
+section for the full release gate. As of this implementation: 52 frontend/
 shared/infra tests and 28 API tests pass, `npm run validate` is clean, and
 `npx cdk synth` produces zero warnings.

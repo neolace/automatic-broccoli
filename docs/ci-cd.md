@@ -13,21 +13,66 @@ with short-lived federated credentials — never long-lived AWS access keys.
 Runs on every pull request and on pushes to `main`
 ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):
 
-```text
-checkout
-  -> npm ci
-  -> format:check   (Prettier + dotnet format --verify-no-changes)
-  -> lint            (ESLint)
-  -> typecheck       (tsc, every TS workspace)
-  -> test            (Vitest: shared/web/infra  +  dotnet test: apps/api)
-  -> build           (Vite build, tsc build for shared, dotnet build)
-  -> cdk synth
-  -> dependency review (pull requests only)
-  -> Playwright smoke tests (needs: quality)
+```mermaid
+%%{init: {
+  "theme": "base",
+  "securityLevel": "strict",
+  "themeVariables": {
+    "background": "#0d1117",
+    "primaryColor": "#161b22",
+    "primaryTextColor": "#f0f6fc",
+    "primaryBorderColor": "#58a6ff",
+    "secondaryColor": "#21262d",
+    "secondaryTextColor": "#f0f6fc",
+    "secondaryBorderColor": "#3fb950",
+    "tertiaryColor": "#1c2128",
+    "tertiaryTextColor": "#f0f6fc",
+    "tertiaryBorderColor": "#d29922",
+    "lineColor": "#58a6ff",
+    "textColor": "#f0f6fc",
+    "clusterBkg": "#161b22",
+    "clusterBorder": "#30363d",
+    "edgeLabelBackground": "#0d1117"
+  }
+}}%%
+flowchart TD
+    Checkout["checkout"] --> Ci["npm ci"]
+    Ci --> Format["format:check<br/>Prettier + dotnet format --verify-no-changes"]
+    Format --> Lint["lint (ESLint)"]
+    Lint --> Typecheck["typecheck (tsc, every TS workspace)"]
+    Typecheck --> Test["test<br/>Vitest: shared/web/infra + dotnet test: apps/api"]
+    Test --> Build["build<br/>Vite build, tsc build for shared, dotnet build"]
+    Build --> Synth["cdk synth"]
+
+    subgraph Quality["quality job"]
+        Checkout
+        Ci
+        Format
+        Lint
+        Typecheck
+        Test
+        Build
+        Synth
+        Coverage["Upload coverage artifact"]
+        DepReview["Dependency review<br/>(pull requests only)"]
+    end
+
+    Synth --> Coverage
+    Coverage --> DepReview
+
+    subgraph Smoke["e2e-smoke job"]
+        PW["Playwright smoke tests"]
+    end
+
+    Quality -->|"needs: quality"| Smoke
 ```
 
-This mirrors `npm run validate` exactly, so "it passed on my machine" and
-"it passed in CI" mean the same thing — see [testing.md](testing.md).
+The `quality` job runs the same checks as `npm run validate`, so "it passed
+on my machine" and "it passed in CI" mean the same thing for those steps —
+see [testing.md](testing.md). CI does strictly more on top: `cdk synth` and
+the `e2e-smoke` job's Playwright checks are not part of `npm run validate`
+and only run in CI (or locally via `npm run synth --workspace infra` /
+`npm run e2e`).
 
 ## `deploy.yml` — deployment
 
@@ -37,15 +82,33 @@ Manually triggered (`workflow_dispatch`) with an environment choice
 workflow file. See [deployment.md](deployment.md) for the required
 variables and the AWS OIDC role setup.
 
-```text
-checkout
-  -> npm run validate                     (repeat the quality gates)
-  -> configure-aws-credentials (OIDC)      no long-lived AWS keys anywhere
-  -> cdk deploy --all --context environment=<env>
-  -> vite build (with the target environment's public config)
-  -> aws s3 sync dist/ -> site bucket    (no CDN cache to invalidate -- see adr/0003)
-  -> smoke test: GET <api>/health
-  -> smoke test: GET <site url>
+```mermaid
+%%{init: {
+  "theme": "base",
+  "securityLevel": "strict",
+  "themeVariables": {
+    "background": "#0d1117",
+    "primaryColor": "#161b22",
+    "primaryTextColor": "#f0f6fc",
+    "primaryBorderColor": "#58a6ff",
+    "secondaryColor": "#21262d",
+    "secondaryTextColor": "#f0f6fc",
+    "secondaryBorderColor": "#3fb950",
+    "lineColor": "#58a6ff",
+    "textColor": "#f0f6fc",
+    "clusterBkg": "#161b22",
+    "clusterBorder": "#30363d",
+    "edgeLabelBackground": "#0d1117"
+  }
+}}%%
+flowchart TD
+    Checkout["checkout"] --> Validate["npm run validate<br/>(repeat the quality gates)"]
+    Validate --> Creds["configure-aws-credentials (OIDC)<br/>no long-lived AWS keys anywhere"]
+    Creds --> Deploy["cdk deploy --all --context environment=&lt;env&gt;"]
+    Deploy --> FeBuild["vite build<br/>(target environment's public config)"]
+    FeBuild --> Sync["aws s3 sync dist/ -&gt; site bucket<br/>no CDN cache to invalidate -- see adr/0003"]
+    Sync --> HealthCheck["smoke test: GET &lt;api&gt;/health"]
+    HealthCheck --> SiteCheck["smoke test: GET &lt;site url&gt;"]
 ```
 
 A deployment is not considered complete when `cdk deploy` returns success —

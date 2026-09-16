@@ -22,6 +22,43 @@ otherwise it mints a fresh one, so a hostile header value can never be used
 to inject content into logs. Every error response includes the (possibly
 regenerated) correlation id so a user can quote it to support.
 
+```mermaid
+%%{init: {
+  "theme": "base",
+  "securityLevel": "strict",
+  "themeVariables": {
+    "background": "#0d1117",
+    "primaryColor": "#161b22",
+    "primaryTextColor": "#f0f6fc",
+    "primaryBorderColor": "#58a6ff",
+    "lineColor": "#58a6ff",
+    "secondaryColor": "#21262d",
+    "tertiaryColor": "#1c2128",
+    "textColor": "#f0f6fc",
+    "actorBkg": "#161b22",
+    "actorBorder": "#58a6ff",
+    "actorTextColor": "#f0f6fc",
+    "signalColor": "#58a6ff",
+    "signalTextColor": "#f0f6fc"
+  }
+}}%%
+sequenceDiagram
+    autonumber
+    participant SPA as React SPA
+    participant APIGW as API Gateway
+    participant Lambda as Lambda (C#)
+    participant CW as CloudWatch
+
+    SPA->>SPA: crypto.randomUUID() -> x-correlation-id
+    SPA->>APIGW: Request + x-correlation-id header
+    APIGW->>Lambda: Invoke (header forwarded)
+    Lambda->>Lambda: Validate header charset, or mint a fresh id
+    APIGW->>CW: Access log (requestId, correlationId, route, status, latency)
+    Lambda->>CW: Structured JSON log line (correlationId, route, userOid, ...)
+    Lambda-->>SPA: Response, including correlationId (even on error)
+    CW->>CW: Dashboard + alarms aggregate trends across both log streams
+```
+
 ## Structured logs
 
 Every Lambda invocation produces one JSON object per log line

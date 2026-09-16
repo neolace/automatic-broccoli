@@ -1,5 +1,18 @@
 # Microsoft Entra ID + React Vite + AWS Lambda Architecture Plan
 
+> **Status: original target plan, superseded in part.** This document
+> describes the plan as originally written, including a TypeScript Lambda
+> and CloudFront in front of S3. The actual implementation deviates from it
+> in three recorded, deliberate ways — see
+> [`adr/0002-dotnet-lambda-runtime.md`](adr/0002-dotnet-lambda-runtime.md)
+> (C# Lambda, not TypeScript),
+> [`adr/0003-remove-cloudfront.md`](adr/0003-remove-cloudfront.md) (API
+> Gateway + Lambda instead of CloudFront), and
+> [`adr/0004-project-rename.md`](adr/0004-project-rename.md) (package name).
+> For the as-built system, start at [`architecture.md`](architecture.md)
+> instead; this file remains the record of the original design intent and
+> rationale.
+
 ## Executive Summary
 
 This document defines the target architecture and delivery plan for a secure single-page application that uses Microsoft Entra ID as the identity provider and AWS serverless services for hosting, API exposure, compute, monitoring, and deployment. The application is intentionally designed without Amazon Cognito or AWS Amplify. Identity remains owned by Microsoft Entra ID, while AWS is responsible for application delivery and execution.

@@ -7,7 +7,6 @@ cdk.out/
 *.tsbuildinfo
 
 # .NET build output (apps/api)
-bin/
 obj/
 *.user
 

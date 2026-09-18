@@ -1,15 +1,31 @@
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
-import { CorsHttpMethod, HttpApi, HttpMethod, type CfnStage } from 'aws-cdk-lib/aws-apigatewayv2';
+import {
+  CorsHttpMethod,
+  DomainName,
+  HttpApi,
+  HttpMethod,
+  type CfnStage,
+  type IDomainName,
+} from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import { API_SCOPE_NAME, apiScope, entraIssuer } from '@app/shared';
 import type { Construct } from 'constructs';
 
 import { dotnetApiCode } from './api-lambda-bundling';
-import type { EntraConfig, EnvironmentConfig } from './config/environments';
+import {
+  resolveCorsOrigins,
+  type DomainConfig,
+  type EntraConfig,
+  type EnvironmentConfig,
+} from './config/environments';
 
 export interface ApiStackProps extends StackProps {
   readonly appEnv: EnvironmentConfig;
@@ -37,7 +53,7 @@ export class ApiStack extends Stack {
 
     // Each handler is a thin adapter (see apps/api/src/App.Api/Handlers); all
     // three share one published assembly and one least-privilege execution
-    // role model -- CloudWatch Logs only, no other AWS permissions granted.
+    // role model -- CloudWatch Logs + X-Ray, no other AWS permissions granted.
     const createFunction = (id: string, name: string, handler: string): lambda.Function => {
       const logGroup = new logs.LogGroup(this, `${id}LogGroup`, {
         logGroupName: `/aws/lambda/${name}`,
@@ -54,6 +70,7 @@ export class ApiStack extends Stack {
         functionName: name,
         handler,
         logGroup,
+        tracing: lambda.Tracing.ACTIVE,
       });
     };
 
@@ -81,16 +98,19 @@ export class ApiStack extends Stack {
     });
     const requiredScope = apiScope(entra.clientId).split('/').pop() ?? API_SCOPE_NAME;
 
+    const domainSetup = this.buildDomainSetup(appEnv.domain);
+
     this.httpApi = new HttpApi(this, 'HttpApi', {
       apiName: `${appEnv.name}-app-api`,
       description:
         'API Gateway HTTP API validating Microsoft Entra access tokens before invoking Lambda.',
       corsPreflight: {
-        allowOrigins: appEnv.corsOrigins,
+        allowOrigins: resolveCorsOrigins(appEnv),
         allowMethods: [CorsHttpMethod.GET, CorsHttpMethod.POST, CorsHttpMethod.OPTIONS],
         allowHeaders: ['authorization', 'content-type', 'x-correlation-id'],
         maxAge: Duration.hours(1),
       },
+      defaultDomainMapping: domainSetup ? { domainName: domainSetup.domainName } : undefined,
     });
 
     // Public health check: no authorizer, and it must stay free of
@@ -119,11 +139,14 @@ export class ApiStack extends Stack {
 
     // Access logs: request id, route, status and latency, but never the
     // Authorization header or claims -- see docs/observability.md.
+    // HTTP API access-log format cannot read arbitrary request headers, so
+    // correlation ids live in Lambda structured logs (tied via requestId).
     const accessLogGroup = new logs.LogGroup(this, 'AccessLogGroup', {
       logGroupName: `/aws/apigateway/${appEnv.name}-app-api-access-logs`,
       retention: appEnv.logRetention,
       removalPolicy,
     });
+    accessLogGroup.grantWrite(new iam.ServicePrincipal('apigateway.amazonaws.com'));
 
     const defaultStage = this.httpApi.defaultStage?.node.defaultChild as CfnStage | undefined;
     if (defaultStage) {
@@ -131,7 +154,6 @@ export class ApiStack extends Stack {
         destinationArn: accessLogGroup.logGroupArn,
         format: JSON.stringify({
           requestId: '$context.requestId',
-          correlationId: '$context.requestOverride.header.x-correlation-id',
           route: '$context.routeKey',
           method: '$context.httpMethod',
           status: '$context.status',
@@ -147,12 +169,55 @@ export class ApiStack extends Stack {
       };
     }
 
-    this.apiUrl = this.httpApi.apiEndpoint;
+    if (domainSetup) {
+      new route53.ARecord(this, 'ApiAliasRecord', {
+        zone: domainSetup.hostedZone,
+        recordName: appEnv.domain!.apiDomainName,
+        target: route53.RecordTarget.fromAlias(
+          new targets.ApiGatewayv2DomainProperties(
+            domainSetup.domainName.regionalDomainName,
+            domainSetup.domainName.regionalHostedZoneId,
+          ),
+        ),
+      });
+      this.apiUrl = `https://${appEnv.domain!.apiDomainName}`;
+    } else {
+      this.apiUrl = this.httpApi.apiEndpoint;
+    }
+
     this.functions = [healthFunction, meFunction, applicationFunction];
 
     this.addAlarms(this.functions, appEnv);
 
     new CfnOutput(this, 'ApiUrl', { value: this.apiUrl });
+  }
+
+  /**
+   * Custom API domain, regional ACM certificate and Route 53 alias -- mirrors
+   * the frontend stack path so `DomainConfig.apiDomainName` is fully wired
+   * rather than dead configuration. When omitted, callers use the generated
+   * execute-api URL.
+   */
+  private buildDomainSetup(
+    domain: DomainConfig | undefined,
+  ): { domainName: IDomainName; hostedZone: route53.IHostedZone } | undefined {
+    if (!domain) return undefined;
+
+    const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
+      domainName: domain.hostedZoneName,
+    });
+
+    const certificate = new acm.Certificate(this, 'ApiCertificate', {
+      domainName: domain.apiDomainName,
+      validation: acm.CertificateValidation.fromDns(hostedZone),
+    });
+
+    const domainName = new DomainName(this, 'ApiDomainName', {
+      domainName: domain.apiDomainName,
+      certificate,
+    });
+
+    return { domainName, hostedZone };
   }
 
   private addAlarms(functions: lambda.Function[], appEnv: EnvironmentConfig): void {

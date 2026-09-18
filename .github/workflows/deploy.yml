@@ -6,7 +6,7 @@ name: Deploy
 # not configured, rather than deploying with unsafe defaults.
 #
 # Trigger manually (workflow_dispatch) to choose an environment explicitly.
-# Wire this to `push: branches: [main]` with environment: prod only once a
+# Wire this to `push: branches: [master]` with environment: prod only once a
 # real AWS account, OIDC role and Entra tenant are provisioned.
 
 on:
@@ -54,7 +54,9 @@ jobs:
           VITE_ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
           VITE_ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
           VITE_ENTRA_API_SCOPE: api://${{ vars.ENTRA_CLIENT_ID }}/access_as_user
-          VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
+          # Placeholder for validate/build only; the real URL is resolved from
+          # stack outputs after cdk deploy (see below).
+          VITE_API_BASE_URL: https://placeholder.invalid
 
       # Federated, short-lived credentials -- see docs/deployment.md for how
       # to create this role (trust policy scoped to this repo and environment).
@@ -65,12 +67,36 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Deploy infrastructure (CDK)
-        run: npx cdk deploy --all --require-approval never --context environment=${{ inputs.environment }}
+        run: npx cdk deploy --all --require-approval never --context environment=${{ inputs.environment }} --outputs-file cdk-outputs.json
         working-directory: infra
         env:
           ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
           ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
           ENVIRONMENT_NAME: ${{ inputs.environment }}
+
+      - name: Resolve stack outputs
+        id: stack
+        working-directory: infra
+        run: |
+          set -euo pipefail
+          ENV="${{ inputs.environment }}"
+          FRONTEND_STACK="${ENV}-app-frontend"
+          API_STACK="${ENV}-app-api"
+
+          SITE_BUCKET=$(jq -r --arg s "$FRONTEND_STACK" '.[$s].SiteBucketName // empty' cdk-outputs.json)
+          SITE_URL=$(jq -r --arg s "$FRONTEND_STACK" '.[$s].SiteUrl // empty' cdk-outputs.json)
+          API_URL=$(jq -r --arg s "$API_STACK" '.[$s].ApiUrl // empty' cdk-outputs.json)
+
+          if [ -z "$SITE_BUCKET" ] || [ -z "$SITE_URL" ] || [ -z "$API_URL" ]; then
+            echo "Missing required stack outputs. Got:"
+            cat cdk-outputs.json
+            exit 1
+          fi
+
+          echo "site_bucket=$SITE_BUCKET" >> "$GITHUB_OUTPUT"
+          echo "site_url=$SITE_URL" >> "$GITHUB_OUTPUT"
+          echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
+          echo "Resolved SiteBucketName=$SITE_BUCKET SiteUrl=$SITE_URL ApiUrl=$API_URL"
 
       - name: Build frontend
         run: npm run build --workspace apps/web
@@ -78,16 +104,16 @@ jobs:
           VITE_ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
           VITE_ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
           VITE_ENTRA_API_SCOPE: api://${{ vars.ENTRA_CLIENT_ID }}/access_as_user
-          VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
+          VITE_API_BASE_URL: ${{ steps.stack.outputs.api_url }}
 
       - name: Sync frontend to S3
         run: |
-          aws s3 sync apps/web/dist "s3://${{ vars.SITE_BUCKET_NAME }}" --delete
+          aws s3 sync apps/web/dist "s3://${{ steps.stack.outputs.site_bucket }}" --delete
 
       - name: Smoke test the deployed API
         run: |
-          curl --fail --silent --show-error "${{ vars.API_BASE_URL }}/health"
+          curl --fail --silent --show-error "${{ steps.stack.outputs.api_url }}/health"
 
       - name: Smoke test the deployed frontend
         run: |
-          curl --fail --silent --show-error "${{ vars.SITE_URL }}" > /dev/null
+          curl --fail --silent --show-error "${{ steps.stack.outputs.site_url }}" > /dev/null

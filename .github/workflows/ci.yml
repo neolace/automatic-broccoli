@@ -1,13 +1,14 @@
 name: CI
 
 # Runs the non-mutating quality gates on every pull request and on pushes to
-# main. This job must pass before merge; see docs/ci-cd.md for how this fits
-# into the full pipeline (deployment is a separate, environment-gated job).
+# the default branch (master). This job must pass before merge; see
+# docs/ci-cd.md for how this fits into the full pipeline (deployment is a
+# separate, environment-gated job).
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [master]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}

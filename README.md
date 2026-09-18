@@ -39,7 +39,7 @@ docs/         Architecture, security, deployment and operations documentation
 ## Prerequisites
 
 ```text
-Node.js >= 22
+Node.js >= 24
 .NET SDK 10.0.x
 An AWS account (for deployment)
 A Microsoft Entra app registration (see docs/entra-configuration.md)

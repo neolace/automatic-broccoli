@@ -33,6 +33,24 @@ public class MeFunctionTests
     }
 
     [Fact]
+    public async Task FunctionHandler_returns_403_when_required_scope_is_missing()
+    {
+        var function = new MeFunction();
+        var response = await function.FunctionHandler(
+            RequestWithClaims(new Dictionary<string, string>
+            {
+                ["oid"] = "user-123",
+                ["tid"] = "tenant-456",
+                ["scp"] = "some_other_scope",
+            }),
+            new TestLambdaContext());
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("FORBIDDEN", response.Body);
+        Assert.Contains("access_as_user", response.Body);
+    }
+
+    [Fact]
     public async Task FunctionHandler_never_echoes_a_bearer_token_and_returns_only_allow_listed_fields()
     {
         var request = RequestWithClaims(new Dictionary<string, string>

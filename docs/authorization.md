@@ -92,6 +92,21 @@ Each throws a typed `ApiException` subclass
 that the handler layer turns into the correct HTTP status — see
 [api.md](api.md#error-shape).
 
+### Handler defense in depth
+
+Protected handlers call `Authorization.RequireScope(auth, "access_as_user")`
+after claims extraction and before business logic:
+
+- [`MeFunction.cs`](../apps/api/src/App.Api/Handlers/MeFunction.cs)
+- [`ApplicationFunction.cs`](../apps/api/src/App.Api/Handlers/ApplicationFunction.cs)
+
+`ApplicationService` also re-checks the scope on `CreateAsync` /
+`ListForCurrentUserAsync`. This is intentional defense in depth: API Gateway
+already rejects missing scopes with `403` before invoke, and the in-process
+check ensures a misconfigured authorizer cannot silently widen access.
+`MeFunctionTests` and `ApplicationFunctionTests` assert a `403` /
+`FORBIDDEN` response when the claim set lacks `access_as_user`.
+
 ### Worked example: the application resource
 
 [`ApplicationService.cs`](../apps/api/src/App.Api/Services/ApplicationService.cs)

@@ -81,12 +81,18 @@ default-src 'self'
 script-src 'self'
 style-src 'self' 'unsafe-inline'
 img-src 'self' data:
-connect-src 'self' https://login.microsoftonline.com
+connect-src 'self' https://login.microsoftonline.com <API_ORIGIN>
 frame-src 'self' https://login.microsoftonline.com
 frame-ancestors 'none'
 base-uri 'none'
 object-src 'none'
 ```
+
+`<API_ORIGIN>` is the public HTTPS origin of the API for the environment
+(custom `apiDomainName` when configured, otherwise the execute-api URL).
+`FrontendStack` passes it to the site Lambda as `API_ORIGIN` so CSP
+`connect-src` is set at deploy time — see
+`infra/lib/site-handler/index.ts` and `infra/test/site-handler.test.ts`.
 
 `style-src 'unsafe-inline'` is a known relaxation for the current plain-CSS
 setup; tighten it (nonce/hash-based) if a CSS-in-JS or inline-style approach
